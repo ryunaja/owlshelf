@@ -22,3 +22,19 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Local environment files
+.env
+.env.*
+
+# Vite / build caches
+.vite
+dev-dist
+
+# Generated PostCSS/Tailwind configs (optional)
+postcss.config.js
+tailwind.config.*
+
+# Misc caches and reports
+.cache
+coverage
