@@ -29,8 +29,9 @@ export function InventoryPage() {
       .filter((item) => item.mode === mode)
       .filter((item) =>
         activeCategory
-          ? item.category === activeCategory || item.tags.includes(activeCategory)
-          : true
+          ? item.category === activeCategory ||
+            item.tags.includes(activeCategory)
+          : true,
       );
   }, [mode, activeCategory]);
 
