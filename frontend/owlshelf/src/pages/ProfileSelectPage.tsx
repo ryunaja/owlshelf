@@ -1,6 +1,7 @@
 import { mockProfiles } from "@/data/mockItems";
 import type { Profile } from "@/types/item";
 import { cn } from "@/lib/utils";
+import logoImg from "@/assets/logo.png";
 
 interface ProfileSelectPageProps {
   onSelect: (profile: Profile) => void;
@@ -13,8 +14,7 @@ export function ProfileSelectPage({ onSelect }: ProfileSelectPageProps) {
         {/* Header */}
         <div className="profile-select-header">
           <div className="app-logo-block">
-            <span className="app-logo-emoji">🦉</span>
-            <h1 className="app-logo-name">Owlshelf</h1>
+            <img src={logoImg} alt="Owlshelf Logo" className="app-logo-img" />
           </div>
           <p className="profile-select-sub">
             Choose a profile to continue

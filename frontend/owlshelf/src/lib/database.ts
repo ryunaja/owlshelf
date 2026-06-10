@@ -1,4 +1,4 @@
-interface UpdateLog {
+export interface UpdateLog {
   uuid: string;
   next: string;
   dataLocation: string;
@@ -6,7 +6,7 @@ interface UpdateLog {
   lastUpdate: Date;
 }
 
-type Status = "CREATE" | "UPDATE" | "DELETE";
+export type Status = "CREATE" | "UPDATE" | "DELETE";
 
 export class Database {
   public db: IDBDatabase | null;

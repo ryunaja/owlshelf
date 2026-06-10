@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { X, Plus, Minus, Tag, Upload } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { Item, ItemType } from "@/types/item";
+import type { Item, ItemType, Condition } from "@/types/item";
 import { ITEM_TYPE_LABELS } from "@/types/item";
 
 interface AddItemDialogProps {
@@ -12,7 +12,7 @@ interface AddItemDialogProps {
   onSave?: (itemData: Partial<Item>) => void;
 }
 
-const CONDITIONS = [
+const CONDITIONS: { value: Condition; label: string }[] = [
   { value: 1, label: "Poor" },
   { value: 2, label: "Fair" },
   { value: 3, label: "Good" },
@@ -34,7 +34,7 @@ export function AddItemDialog({
   const isEdit = !!editItem;
 
   const [quantity, setQuantity] = useState(1);
-  const [condition, setCondition] = useState(3);
+  const [condition, setCondition] = useState<Condition>(3);
   const [itemType, setItemType] = useState<ItemType>("book");
 
   /* Pre-fill when editing */
