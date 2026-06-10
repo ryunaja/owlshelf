@@ -1,15 +1,6 @@
-interface UpdateLog {
-  uuid: string;
-  next: string;
-  dataLocation: string;
-  status: Status;
-  lastUpdate: Date;
-}
-
-type Status = "CREATE" | "UPDATE" | "DELETE";
-
 export class Database {
   public db: IDBDatabase | null;
+  private blob: IDBDatabase | null = null;
 
   constructor(name: string) {
     this.db = null;
