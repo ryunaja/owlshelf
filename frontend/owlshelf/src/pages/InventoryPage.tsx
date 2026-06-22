@@ -6,6 +6,7 @@ import { SearchBar } from "@/components/items/SearchBar";
 import { AddItemDialog } from "@/components/items/AddItemDialog";
 import { ItemDetailDialog } from "@/components/items/ItemDetailDialog";
 import { mockItems } from "@/data/mockItems";
+import { useLocalStorage } from "@/lib/useLocalStorage";
 import type { Profile, Location, Item, ItemType } from "@/types/item";
 
 interface InventoryPageProps {
@@ -15,7 +16,8 @@ interface InventoryPageProps {
 }
 
 export function InventoryPage({ profile, location, onBack }: InventoryPageProps) {
-  const [items, setItems] = useState<Item[]>(mockItems);
+  // Persists to localStorage; falls back to mockItems on first visit
+  const [items, setItems] = useLocalStorage<Item[]>("owlshelf-items", mockItems);
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const [activeType, setActiveType] = useState<ItemType | "all">("all");
   const [searchQuery, setSearchQuery] = useState("");
