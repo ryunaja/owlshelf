@@ -1,4 +1,4 @@
-import { mockProfiles } from "@/data/mockItems";
+import { useProfiles } from "@/lib/useDB";
 import type { Profile } from "@/types/item";
 import { cn } from "@/lib/utils";
 import logoImg from "@/assets/logo.png";
@@ -8,6 +8,8 @@ interface ProfileSelectPageProps {
 }
 
 export function ProfileSelectPage({ onSelect }: ProfileSelectPageProps) {
+  const { profiles, loading } = useProfiles();
+
   return (
     <div className="profile-select-page">
       <div className="profile-select-inner">
@@ -23,30 +25,37 @@ export function ProfileSelectPage({ onSelect }: ProfileSelectPageProps) {
 
         {/* Profile cards */}
         <div className="profile-cards">
-          {mockProfiles.map((profile) => (
-            <button
-              key={profile.id}
-              id={`profile-${profile.id}`}
-              className={cn(
-                "profile-card",
-                profile.type === "personal"
-                  ? "profile-card--personal"
-                  : "profile-card--business"
-              )}
-              onClick={() => onSelect(profile)}
-            >
-              <span className="profile-card-emoji">{profile.avatarEmoji}</span>
-              <div>
-                <p className="profile-card-name">{profile.name}</p>
-                <p className="profile-card-type">
-                  {profile.type === "personal"
-                    ? "Personal collection"
-                    : "Business inventory"}
-                </p>
-              </div>
-              <span className="profile-card-arrow">→</span>
-            </button>
-          ))}
+          {loading ? (
+            <>
+              <div className="profile-card profile-card--skeleton" />
+              <div className="profile-card profile-card--skeleton" />
+            </>
+          ) : (
+            profiles.map((profile) => (
+              <button
+                key={profile.id}
+                id={`profile-${profile.id}`}
+                className={cn(
+                  "profile-card",
+                  profile.type === "personal"
+                    ? "profile-card--personal"
+                    : "profile-card--business"
+                )}
+                onClick={() => onSelect(profile)}
+              >
+                <span className="profile-card-emoji">{profile.avatarEmoji}</span>
+                <div>
+                  <p className="profile-card-name">{profile.name}</p>
+                  <p className="profile-card-type">
+                    {profile.type === "personal"
+                      ? "Personal collection"
+                      : "Business inventory"}
+                  </p>
+                </div>
+                <span className="profile-card-arrow">→</span>
+              </button>
+            ))
+          )}
         </div>
 
         <p className="profile-select-foot">

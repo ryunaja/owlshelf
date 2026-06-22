@@ -5,8 +5,7 @@ import { ItemGrid } from "@/components/items/ItemGrid";
 import { SearchBar } from "@/components/items/SearchBar";
 import { AddItemDialog } from "@/components/items/AddItemDialog";
 import { ItemDetailDialog } from "@/components/items/ItemDetailDialog";
-import { mockItems } from "@/data/mockItems";
-import { useLocalStorage } from "@/lib/useLocalStorage";
+import { useItems } from "@/lib/useDB";
 import type { Profile, Location, Item, ItemType } from "@/types/item";
 
 interface InventoryPageProps {
@@ -16,8 +15,8 @@ interface InventoryPageProps {
 }
 
 export function InventoryPage({ profile, location, onBack }: InventoryPageProps) {
-  // Persists to localStorage; falls back to mockItems on first visit
-  const [items, setItems] = useLocalStorage<Item[]>("owlshelf-items", mockItems);
+  const { items, loading, addItem, updateItem, deleteItem } = useItems(location.id);
+
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const [activeType, setActiveType] = useState<ItemType | "all">("all");
   const [searchQuery, setSearchQuery] = useState("");
@@ -26,13 +25,8 @@ export function InventoryPage({ profile, location, onBack }: InventoryPageProps)
   const [detailItem, setDetailItem] = useState<Item | null>(null);
 
   /* Filtered items */
-  const locationItems = useMemo(
-    () => items.filter((i) => i.locationId === location.id),
-    [items, location.id]
-  );
-
   const visibleItems = useMemo(() => {
-    return locationItems
+    return items
       .filter((item) =>
         activeType !== "all" ? item.itemType === activeType : true
       )
@@ -50,27 +44,27 @@ export function InventoryPage({ profile, location, onBack }: InventoryPageProps)
           item.tags.some((t) => t.toLowerCase().includes(q))
         );
       });
-  }, [locationItems, activeType, activeCategory, searchQuery]);
+  }, [items, activeType, activeCategory, searchQuery]);
 
-  /* Build category filter list from current type-filtered items */
+  /* Category filter list */
   const categories = useMemo(() => {
-    const typeFiltered =
+    const source =
       activeType !== "all"
-        ? locationItems.filter((i) => i.itemType === activeType)
-        : locationItems;
-
+        ? items.filter((i) => i.itemType === activeType)
+        : items;
     const counts: Record<string, number> = {};
-    typeFiltered.forEach((i) => {
+    source.forEach((i) => {
       counts[i.category] = (counts[i.category] ?? 0) + 1;
     });
     return Object.entries(counts).map(([name, count]) => ({ name, count }));
-  }, [locationItems, activeType]);
+  }, [items, activeType]);
 
   const totalStock = visibleItems.reduce((s, i) => s + i.stock, 0);
 
   /* Handlers */
-  const handleDelete = (id: string) => {
-    setItems((prev) => prev.filter((i) => i.id !== id));
+  const handleDelete = async (id: string) => {
+    await deleteItem(id);
+    if (detailItem?.id === id) setDetailItem(null);
   };
 
   const handleEdit = (item: Item) => {
@@ -83,30 +77,21 @@ export function InventoryPage({ profile, location, onBack }: InventoryPageProps)
     setEditingItem(null);
   };
 
-  const handleSaveItem = (itemData: Partial<Item>) => {
+  const handleSaveItem = async (itemData: Partial<Item>) => {
     if (editingItem) {
-      const updatedItem = { ...editingItem, ...itemData } as Item;
-      setItems((prev) =>
-        prev.map((i) => (i.id === editingItem.id ? updatedItem : i))
-      );
-      if (detailItem?.id === editingItem.id) {
-        setDetailItem(updatedItem);
-      }
+      const updated = { ...editingItem, ...itemData } as Item;
+      await updateItem(updated);
+      if (detailItem?.id === updated.id) setDetailItem(updated);
     } else {
-      const newItem: Item = {
-        id: Math.random().toString(36).substring(2, 9),
-        locationId: location.id,
-        category: "Uncategorized",
-        imageUrl: "https://images.unsplash.com/photo-1544947950-fa07a98d237f?auto=format&fit=crop&q=80&w=800",
-        name: itemData.name || "Untitled",
-        subtitle: itemData.subtitle || "",
-        itemType: itemData.itemType || "book",
-        stock: itemData.stock || 1,
-        tags: itemData.tags || [],
-        condition: itemData.condition || 3,
-        description: itemData.description || "",
-      } as Item;
-      setItems((prev) => [...prev, newItem]);
+      await addItem(location.id, {
+        name:        itemData.name        ?? "Untitled",
+        subtitle:    itemData.subtitle    ?? "",
+        description: itemData.description ?? "",
+        stock:       itemData.stock,
+        tags:        itemData.tags,
+        itemType:    itemData.itemType,
+        condition:   itemData.condition,
+      });
     }
   };
 
@@ -149,12 +134,16 @@ export function InventoryPage({ profile, location, onBack }: InventoryPageProps)
 
           <div className="section-divider" />
 
-          <ItemGrid
-            items={visibleItems}
-            onItemClick={setDetailItem}
-            onEdit={handleEdit}
-            onDelete={handleDelete}
-          />
+          {loading ? (
+            <div className="items-loading">Loading items…</div>
+          ) : (
+            <ItemGrid
+              items={visibleItems}
+              onItemClick={setDetailItem}
+              onEdit={handleEdit}
+              onDelete={handleDelete}
+            />
+          )}
         </main>
       </div>
 
