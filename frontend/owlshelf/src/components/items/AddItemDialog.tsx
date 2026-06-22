@@ -36,6 +36,7 @@ export function AddItemDialog({
   const [quantity, setQuantity] = useState(1);
   const [condition, setCondition] = useState<Condition>(3);
   const [itemType, setItemType] = useState<ItemType>("book");
+  const [imageUrl, setImageUrl] = useState<string | undefined>();
 
   /* Pre-fill when editing */
   useEffect(() => {
@@ -43,12 +44,25 @@ export function AddItemDialog({
       setQuantity(editItem.stock);
       setCondition(editItem.condition);
       setItemType(editItem.itemType);
+      setImageUrl(editItem.imageUrl);
     } else {
       setQuantity(1);
       setCondition(3);
       setItemType("book");
+      setImageUrl(undefined);
     }
   }, [editItem, open]);
+
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      setImageUrl(event.target?.result as string);
+    };
+    reader.readAsDataURL(file);
+  };
 
   const handleSave = () => {
     const nameInput = document.getElementById("field-name") as HTMLInputElement;
@@ -70,6 +84,7 @@ export function AddItemDialog({
         tags,
         condition,
         description,
+        imageUrl,
       });
     }
     onClose();
@@ -115,10 +130,16 @@ export function AddItemDialog({
 
         <div className="dialog-body">
           {/* Image upload zone */}
-          <div className="upload-zone" role="button" tabIndex={0}>
-            {isEdit && editItem?.imageUrl ? (
+          <label className="upload-zone" tabIndex={0} style={{ cursor: "pointer" }}>
+            <input 
+              type="file" 
+              accept="image/*" 
+              style={{ display: "none" }} 
+              onChange={handleImageUpload} 
+            />
+            {imageUrl ? (
               <img
-                src={editItem.imageUrl}
+                src={imageUrl}
                 alt="Current item"
                 style={{ width: "100%", height: 120, objectFit: "cover", borderRadius: 8 }}
               />
@@ -129,7 +150,7 @@ export function AddItemDialog({
                 <span className="upload-hint">PNG, JPG up to 4 MB</span>
               </>
             )}
-          </div>
+          </label>
 
           <div className="dialog-fields">
             {/* Item name */}

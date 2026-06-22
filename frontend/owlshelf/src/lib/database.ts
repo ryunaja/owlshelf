@@ -79,6 +79,12 @@ function idbRequest<T>(req: IDBRequest<T>): Promise<T> {
   });
 }
 
+export async function dbGet<T>(storeName: string, id: string): Promise<T | undefined> {
+  const db = await openDB();
+  const tx = db.transaction(storeName, "readonly");
+  return idbRequest<T | undefined>(tx.objectStore(storeName).get(id));
+}
+
 export async function dbGetAll<T>(storeName: string): Promise<T[]> {
   const db = await openDB();
   const tx = db.transaction(storeName, "readonly");
@@ -118,6 +124,7 @@ export const profilesDB = {
 export const locationsDB = {
   getAll:       ()                  => dbGetAll<Location>("locations"),
   getByProfile: (profileId: string) => dbGetByIndex<Location>("locations", "profileId", profileId),
+  get:          (id: string)        => dbGet<Location>("locations", id),
   put:          (l: Location)       => dbPut("locations", l),
   delete:       (id: string)        => dbDelete("locations", id),
 };
@@ -125,6 +132,7 @@ export const locationsDB = {
 export const itemsDB = {
   getAll:       ()                   => dbGetAll<Item>("items"),
   getByLocation:(locationId: string) => dbGetByIndex<Item>("items", "locationId", locationId),
+  get:          (id: string)         => dbGet<Item>("items", id),
   put:          (i: Item)            => dbPut("items", i),
   delete:       (id: string)         => dbDelete("items", id),
 };

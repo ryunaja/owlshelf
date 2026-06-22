@@ -162,6 +162,14 @@ export function useItems(locationId: string): UseItemsResult {
       imageUrl: data.imageUrl,
     };
     await itemsDB.put(item);
+    
+    // Update location count
+    const loc = await locationsDB.get(locId);
+    if (loc) {
+      loc.itemCount++;
+      await locationsDB.put(loc);
+    }
+    
     setItems((prev) => [...prev, item]);
   }, []);
 
@@ -171,6 +179,14 @@ export function useItems(locationId: string): UseItemsResult {
   }, []);
 
   const deleteItem = useCallback(async (id: string) => {
+    const item = await itemsDB.get(id);
+    if (item) {
+      const loc = await locationsDB.get(item.locationId);
+      if (loc) {
+        loc.itemCount = Math.max(0, loc.itemCount - 1);
+        await locationsDB.put(loc);
+      }
+    }
     await itemsDB.delete(id);
     setItems((prev) => prev.filter((i) => i.id !== id));
   }, []);
