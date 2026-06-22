@@ -63,6 +63,7 @@ interface UseLocationsResult {
   loading: boolean;
   error: string | null;
   addLocation: (data: Omit<Location, "id" | "itemCount">) => Promise<Location>;
+  updateLocation: (updated: Location) => Promise<void>;
   deleteLocation: (id: string) => Promise<void>;
 }
 
@@ -98,12 +99,17 @@ export function useLocations(profileId: string): UseLocationsResult {
     []
   );
 
+  const updateLocation = useCallback(async (updated: Location) => {
+    await locationsDB.put(updated);
+    setLocations((prev) => prev.map((l) => (l.id === updated.id ? updated : l)));
+  }, []);
+
   const deleteLocation = useCallback(async (id: string) => {
     await locationsDB.delete(id);
     setLocations((prev) => prev.filter((l) => l.id !== id));
   }, []);
 
-  return { locations, loading, error, addLocation, deleteLocation };
+  return { locations, loading, error, addLocation, updateLocation, deleteLocation };
 }
 
 // ─── useItems ─────────────────────────────────────────────────────────────

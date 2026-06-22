@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { X, MapPin } from "lucide-react";
 import type { Location, Profile } from "@/types/item";
 
@@ -7,6 +7,7 @@ const ICON_PRESETS = ["📚", "📦", "🏠", "🖥️", "🏭", "🏬", "🗄�
 interface AddLocationDialogProps {
   open: boolean;
   profile: Profile;
+  editLocation?: Location | null;
   onClose: () => void;
   onSave: (data: Omit<Location, "id" | "itemCount">) => Promise<Location | void>;
 }
@@ -14,14 +15,29 @@ interface AddLocationDialogProps {
 export function AddLocationDialog({
   open,
   profile,
+  editLocation,
   onClose,
   onSave,
 }: AddLocationDialogProps) {
+  const isEdit = !!editLocation;
+
   const [name, setName] = useState("");
   const [icon, setIcon] = useState("📁");
   const [description, setDescription] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (editLocation) {
+      setName(editLocation.name);
+      setIcon(editLocation.icon);
+      setDescription(editLocation.description || "");
+    } else {
+      setName("");
+      setIcon("📁");
+      setDescription("");
+    }
+  }, [editLocation, open]);
 
   if (!open) return null;
 
@@ -68,10 +84,10 @@ export function AddLocationDialog({
         <div className="dialog-header">
           <div>
             <h2 id="add-loc-title" className="dialog-title">
-              Add Location
+              {isEdit ? "Edit Location" : "Add Location"}
             </h2>
             <p className="dialog-subtitle">
-              New shelf for <strong>{profile.name}</strong>
+              {isEdit ? "Editing shelf in " : "New shelf for "}<strong>{profile.name}</strong>
             </p>
           </div>
           <button
@@ -163,7 +179,7 @@ export function AddLocationDialog({
             onClick={handleSave}
             disabled={saving}
           >
-            {saving ? "Saving…" : "Add Location"}
+            {saving ? "Saving…" : (isEdit ? "Save Changes" : "Add Location")}
           </button>
         </div>
       </div>

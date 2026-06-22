@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Plus } from "lucide-react";
+import { Plus, Pencil } from "lucide-react";
 import { useLocations } from "@/lib/useDB";
 import { AddLocationDialog } from "@/components/layout/AddLocationDialog";
 import type { Profile, Location } from "@/types/item";
@@ -15,8 +15,28 @@ export function LocationSelectPage({
   onSelectLocation,
   onBack,
 }: LocationSelectPageProps) {
-  const { locations, loading, addLocation } = useLocations(profile.id);
+  const { locations, loading, addLocation, updateLocation } = useLocations(profile.id);
   const [addDialogOpen, setAddDialogOpen] = useState(false);
+  const [editingLocation, setEditingLocation] = useState<Location | null>(null);
+
+  const handleEditClick = (e: React.MouseEvent, loc: Location) => {
+    e.stopPropagation();
+    setEditingLocation(loc);
+    setAddDialogOpen(true);
+  };
+
+  const handleSaveLocation = async (data: Omit<Location, "id" | "itemCount">) => {
+    if (editingLocation) {
+      await updateLocation({ ...editingLocation, ...data });
+    } else {
+      await addLocation(data);
+    }
+  };
+
+  const handleCloseDialog = () => {
+    setAddDialogOpen(false);
+    setEditingLocation(null);
+  };
 
   return (
     <div className="location-page">
@@ -61,6 +81,14 @@ export function LocationSelectPage({
                 <span className="location-card-count">
                   {loc.itemCount} item{loc.itemCount !== 1 ? "s" : ""}
                 </span>
+                <button 
+                  className="card-menu-btn" 
+                  onClick={(e) => handleEditClick(e, loc)}
+                  aria-label="Edit location"
+                  style={{ position: "absolute", top: 12, right: 12 }}
+                >
+                  <Pencil size={14} strokeWidth={2.5} />
+                </button>
               </button>
             ))
           )}
@@ -82,12 +110,13 @@ export function LocationSelectPage({
         </div>
       </div>
 
-      {/* Add Location Dialog */}
+      {/* Add / Edit Location Dialog */}
       <AddLocationDialog
         open={addDialogOpen}
         profile={profile}
-        onClose={() => setAddDialogOpen(false)}
-        onSave={addLocation}
+        editLocation={editingLocation}
+        onClose={handleCloseDialog}
+        onSave={handleSaveLocation}
       />
     </div>
   );
