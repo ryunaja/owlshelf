@@ -1175,6 +1175,7 @@
   border: 1px solid var(--border);
 }
 .item-card:hover .card-menu-btn,
+.location-card:hover .card-menu-btn,
 .card-menu-btn--open { opacity: 1; }
 .card-menu-btn:hover { background: var(--bg-card); color: var(--text); }
 
