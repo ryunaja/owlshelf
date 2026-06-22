@@ -89,8 +89,10 @@ export function InventoryPage({ profile, location, onBack }: InventoryPageProps)
         description: itemData.description ?? "",
         stock:       itemData.stock,
         tags:        itemData.tags,
+        category:    itemData.category,
         itemType:    itemData.itemType,
         condition:   itemData.condition,
+        imageUrl:    itemData.imageUrl,
       });
     }
   };

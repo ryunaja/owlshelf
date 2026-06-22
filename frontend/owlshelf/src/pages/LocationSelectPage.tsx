@@ -67,11 +67,14 @@ export function LocationSelectPage({
             ))
           ) : (
             locations.map((loc) => (
-              <button
+              <div
                 key={loc.id}
                 id={`location-${loc.id}`}
                 className="location-card"
+                role="button"
+                tabIndex={0}
                 onClick={() => onSelectLocation(loc)}
+                onKeyDown={(e) => e.key === "Enter" && onSelectLocation(loc)}
               >
                 <span className="location-card-icon">{loc.icon}</span>
                 <div className="location-card-body">
@@ -89,7 +92,7 @@ export function LocationSelectPage({
                 >
                   <Pencil size={14} strokeWidth={2.5} />
                 </button>
-              </button>
+              </div>
             ))
           )}
 

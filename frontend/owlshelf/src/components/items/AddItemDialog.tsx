@@ -36,6 +36,7 @@ export function AddItemDialog({
   const [quantity, setQuantity] = useState(1);
   const [condition, setCondition] = useState<Condition>(3);
   const [itemType, setItemType] = useState<ItemType>("book");
+  const [category, setCategory] = useState("Uncategorized");
   const [imageUrl, setImageUrl] = useState<string | undefined>();
 
   /* Pre-fill when editing */
@@ -44,11 +45,13 @@ export function AddItemDialog({
       setQuantity(editItem.stock);
       setCondition(editItem.condition);
       setItemType(editItem.itemType);
+      setCategory(editItem.category || "Uncategorized");
       setImageUrl(editItem.imageUrl);
     } else {
       setQuantity(1);
       setCondition(3);
       setItemType("book");
+      setCategory("Uncategorized");
       setImageUrl(undefined);
     }
   }, [editItem, open]);
@@ -68,11 +71,13 @@ export function AddItemDialog({
     const nameInput = document.getElementById("field-name") as HTMLInputElement;
     const subtitleInput = document.getElementById("field-subtitle") as HTMLInputElement;
     const tagsInput = document.getElementById("field-tags") as HTMLInputElement;
+    const categoryInput = document.getElementById("field-category") as HTMLInputElement;
     const descInput = document.getElementById("field-desc") as HTMLTextAreaElement;
 
     const name = nameInput?.value || "";
     const subtitle = subtitleInput?.value || "";
     const tags = tagsInput?.value.split(",").map(t => t.trim()).filter(Boolean) || [];
+    const cat = categoryInput?.value || "Uncategorized";
     const description = descInput?.value || "";
 
     if (onSave) {
@@ -80,6 +85,7 @@ export function AddItemDialog({
         name,
         subtitle,
         itemType,
+        category: cat,
         stock: quantity,
         tags,
         condition,
@@ -181,23 +187,38 @@ export function AddItemDialog({
               />
             </div>
 
-            {/* Item Type */}
-            <div className="field-group">
-              <label htmlFor="field-type" className="field-label">
-                Item Type
-              </label>
-              <select
-                id="field-type"
-                className="field-input type-select"
-                value={itemType}
-                onChange={(e) => setItemType(e.target.value as ItemType)}
-              >
-                {ITEM_TYPES.map((t) => (
-                  <option key={t.value} value={t.value}>
-                    {t.label}
-                  </option>
-                ))}
-              </select>
+            {/* Item Type & Category */}
+            <div className="detail-meta">
+              <div className="field-group" style={{ flex: 1 }}>
+                <label htmlFor="field-type" className="field-label">
+                  Item Type
+                </label>
+                <select
+                  id="field-type"
+                  className="field-input type-select"
+                  value={itemType}
+                  onChange={(e) => setItemType(e.target.value as ItemType)}
+                >
+                  {ITEM_TYPES.map((t) => (
+                    <option key={t.value} value={t.value}>
+                      {t.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="field-group" style={{ flex: 1 }}>
+                <label htmlFor="field-category" className="field-label">
+                  Category
+                </label>
+                <input
+                  id="field-category"
+                  type="text"
+                  placeholder="e.g. Novel, Electronics"
+                  defaultValue={category}
+                  className="field-input"
+                />
+              </div>
             </div>
 
             {/* Quantity */}
