@@ -15,7 +15,7 @@ export function LocationSelectPage({
   onSelectLocation,
   onBack,
 }: LocationSelectPageProps) {
-  const { locations, loading, addLocation, updateLocation } = useLocations(profile.id);
+  const { locations, loading, addLocation, updateLocation, deleteLocation } = useLocations(profile.id);
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [editingLocation, setEditingLocation] = useState<Location | null>(null);
 
@@ -84,8 +84,8 @@ export function LocationSelectPage({
                 <span className="location-card-count">
                   {loc.itemCount} item{loc.itemCount !== 1 ? "s" : ""}
                 </span>
-                <button 
-                  className="card-menu-btn" 
+                <button
+                  className="card-menu-btn"
                   onClick={(e) => handleEditClick(e, loc)}
                   aria-label="Edit location"
                   style={{ position: "absolute", top: 12, right: 12 }}
@@ -120,6 +120,7 @@ export function LocationSelectPage({
         editLocation={editingLocation}
         onClose={handleCloseDialog}
         onSave={handleSaveLocation}
+        onDelete={deleteLocation}
       />
     </div>
   );

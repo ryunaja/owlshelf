@@ -10,6 +10,7 @@ interface AddLocationDialogProps {
   editLocation?: Location | null;
   onClose: () => void;
   onSave: (data: Omit<Location, "id" | "itemCount">) => Promise<Location | void>;
+  onDelete?: (id: string) => Promise<void>;
 }
 
 export function AddLocationDialog({
@@ -18,6 +19,7 @@ export function AddLocationDialog({
   editLocation,
   onClose,
   onSave,
+  onDelete,
 }: AddLocationDialogProps) {
   const isEdit = !!editLocation;
 
@@ -169,18 +171,43 @@ export function AddLocationDialog({
         </div>
 
         {/* Footer */}
-        <div className="dialog-footer">
-          <button id="loc-cancel" className="btn-ghost" onClick={onClose}>
-            Cancel
-          </button>
-          <button
-            id="loc-save"
-            className="btn-primary"
-            onClick={handleSave}
-            disabled={saving}
-          >
-            {saving ? "Saving…" : (isEdit ? "Save Changes" : "Add Location")}
-          </button>
+        <div className="dialog-footer" style={isEdit && onDelete ? { justifyContent: "space-between" } : undefined}>
+          {isEdit && onDelete && (
+            <button
+              type="button"
+              className="btn-ghost"
+              style={{ color: "#C0392B" }}
+              onClick={async () => {
+                if (window.confirm("Are you sure you want to delete this location? All items inside will be permanently deleted.")) {
+                  setSaving(true);
+                  try {
+                    await onDelete(editLocation!.id);
+                    onClose();
+                  } catch {
+                    setError("Failed to delete location.");
+                  } finally {
+                    setSaving(false);
+                  }
+                }
+              }}
+              disabled={saving}
+            >
+              Delete Location
+            </button>
+          )}
+          <div style={{ display: "flex", gap: "12px", marginLeft: isEdit && onDelete ? "auto" : undefined }}>
+            <button id="loc-cancel" className="btn-ghost" onClick={onClose}>
+              Cancel
+            </button>
+            <button
+              id="loc-save"
+              className="btn-primary"
+              onClick={handleSave}
+              disabled={saving}
+            >
+              {saving ? "Saving…" : (isEdit ? "Save Changes" : "Add Location")}
+            </button>
+          </div>
         </div>
       </div>
     </div>
