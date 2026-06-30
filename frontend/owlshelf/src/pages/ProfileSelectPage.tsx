@@ -2,6 +2,7 @@ import { useProfiles } from "@/lib/useDB";
 import type { Profile } from "@/types/item";
 import { cn } from "@/lib/utils";
 import logoImg from "@/assets/logo.png";
+import { TypewriterBrand } from "@/components/layout/TypewriterBrand";
 
 interface ProfileSelectPageProps {
   onSelect: (profile: Profile) => void;
@@ -15,6 +16,9 @@ export function ProfileSelectPage({ onSelect }: ProfileSelectPageProps) {
       <div className="profile-select-inner">
         {/* Header */}
         <div className="profile-select-header">
+          <div style={{ marginBottom: '1.5rem', }}>
+            <TypewriterBrand text="Owlshelf" />
+          </div>
           <div className="app-logo-block">
             <img src={logoImg} alt="Owlshelf Logo" className="app-logo-img" />
           </div>
