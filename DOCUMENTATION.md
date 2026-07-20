@@ -1,4 +1,4 @@
-# 📚 Owlshelf — Project Documentation
+# Owlshelf — Project Documentation
 
 > A dual-mode, offline-first inventory management app built with **Vite + React + TypeScript** on the frontend and **FastAPI + SQLite** on the backend.
 
