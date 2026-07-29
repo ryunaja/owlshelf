@@ -52,8 +52,8 @@ export const TypewriterBrand: React.FC<TypewriterBrandProps> = ({ text }) => {
                         }}
                         variants={{
                             hover: {
-                                color: '#D4AF37',
-                                textShadow: "0px 0px 14px rgba(212, 175, 55, 0.7), 0px 0px 4px rgba(212, 175, 55, 0.4)",
+                                color: '#c8a27ecf',
+                                textShadow: "0px 0px 14px rgba(210, 189, 157, 0.86), 0px 0px 4px rgba(212, 175, 55, 0.4)",
                                 transition: { duration: 0.25 }
                             }
                         }}

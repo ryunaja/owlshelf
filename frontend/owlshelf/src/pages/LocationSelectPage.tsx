@@ -1,19 +1,22 @@
 import { useState } from "react";
-import { Plus, Pencil } from "lucide-react";
+import { Plus, Pencil, Search } from "lucide-react";
 import { useLocations } from "@/lib/useDB";
 import { AddLocationDialog } from "@/components/layout/AddLocationDialog";
 import type { Profile, Location } from "@/types/item";
+import logoSrc from "@/assets/logo.png";
 
 interface LocationSelectPageProps {
   profile: Profile;
   onSelectLocation: (location: Location) => void;
   onBack: () => void;
+  onOpenSearch: () => void;
 }
 
 export function LocationSelectPage({
   profile,
   onSelectLocation,
   onBack,
+  onOpenSearch,
 }: LocationSelectPageProps) {
   const { locations, loading, addLocation, updateLocation, deleteLocation } = useLocations(profile.id);
   const [addDialogOpen, setAddDialogOpen] = useState(false);
@@ -46,10 +49,17 @@ export function LocationSelectPage({
           ← Back
         </button>
         <div className="location-topbar-brand">
-          <span>{profile.avatarEmoji}</span>
+          <img src={logoSrc} alt="Owlshelf" className="loc-topbar-logo" />
           <span className="location-topbar-name">{profile.name}</span>
         </div>
-        <div style={{ width: 80 }} />
+        <button
+          id="loc-search-btn"
+          className="loc-search-btn"
+          onClick={onOpenSearch}
+          aria-label="Global search"
+        >
+          <Search size={18} strokeWidth={2} />
+        </button>
       </header>
 
       <div className="location-page-inner">

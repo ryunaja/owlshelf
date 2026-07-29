@@ -16,7 +16,7 @@ export function ProfileSelectPage({ onSelect }: ProfileSelectPageProps) {
       <div className="profile-select-inner">
         {/* Header */}
         <div className="profile-select-header">
-          <div style={{ marginBottom: '1.5rem', }}>
+          <div style={{ marginBottom: '1.5rem' }}>
             <TypewriterBrand text="Owlshelf" />
           </div>
           <div className="app-logo-block">

@@ -36,7 +36,8 @@
 - Organize items by custom **Locations** (shelves, rooms, warehouses)
 - Track item **name, stock, condition, tags, category, image, and description**
 - Filter items by type and category via an interactive sidebar
-- Full-text search across name, subtitle, and tags
+- **Global Search** — search across all locations in a profile from any screen
+- Full-text search across name, subtitle, tags, category, and location name
 - Add, edit, and delete items and locations — all persisted offline-first in IndexedDB
 
 ---
@@ -102,8 +103,9 @@ owlshelf/
             │
             ├── pages/
             │   ├── ProfileSelectPage.tsx   # Screen 1: pick a profile
-            │   ├── LocationSelectPage.tsx  # Screen 2: pick a location
-            │   └── InventoryPage.tsx       # Screen 3: view & manage items
+            │   ├── LocationSelectPage.tsx  # Screen 2: pick a location (+ global search button)
+            │   ├── InventoryPage.tsx       # Screen 3: view & manage items (+ global search button)
+            │   └── GlobalSearchPage.tsx   # Screen 4: search all items across all locations
             │
             └── components/
                 ├── items/
@@ -115,7 +117,7 @@ owlshelf/
                 └── layout/
                     ├── Topbar.tsx             # Inventory page top navigation bar
                     ├── Sidebar.tsx            # Type + category filter panel
-                    ├── AddLocationDialog.tsx  # Add / Edit location modal
+                    ├── AddLocationDialog.tsx  # Add / Edit / Delete location modal
                     └── TypewriterBrand.tsx    # Animated brand title component
 ```
 
@@ -180,19 +182,26 @@ uvicorn main:app --reload
 
 ```
 ProfileSelectPage  →  (user picks profile)
-  └── LocationSelectPage  →  (user picks location)
-        └── InventoryPage  (back button returns to previous screen)
+  └── LocationSelectPage  →  (user picks location)    ─┐ search button in topbar
+        │  (search icon in topbar)                      │ opens GlobalSearchPage
+        │  └── GlobalSearchPage                         │
+        └── InventoryPage  (back → LocationSelectPage) ─┘
+              (search icon in topbar)
+              └── GlobalSearchPage
 ```
 
 ```typescript
 // App.tsx
-type Screen = 'profile-select' | 'location-select' | 'inventory'
+type Screen = 'profile-select' | 'location-select' | 'inventory' | 'global-search'
 ```
 
 | Handler | What it does |
 |---|---|
 | `handleProfileSelect(profile)` | Sets `activeProfile`, navigates to `'location-select'` |
 | `handleLocationSelect(location)` | Sets `activeLocation`, navigates to `'inventory'` |
+| `handleOpenSearch(origin)` | Records `searchOrigin`, navigates to `'global-search'` |
+| `handleSearchBack()` | Returns to the screen stored in `searchOrigin` |
+| `handleSearchNavigate(location)` | Sets `activeLocation`, navigates to `'inventory'` |
 
 ---
 
@@ -548,13 +557,14 @@ The app's landing screen. Displays a card for each profile loaded from IndexedDB
 
 **File:** `src/pages/LocationSelectPage.tsx`
 
-Shows all locations for the active profile. Allows creating, editing, and deleting locations.
+Shows all locations for the active profile. Allows creating, editing, and deleting locations. The topbar shows the Owlshelf logo and a **Search icon button** for global search.
 
 | Prop | Type | Description |
 |---|---|---|
 | `profile` | `Profile` | The currently active profile |
 | `onSelectLocation` | `(location: Location) → void` | Called when the user clicks a location card |
 | `onBack` | `() → void` | Navigates back to `ProfileSelectPage` |
+| `onOpenSearch` | `() → void` | Opens the `GlobalSearchPage` |
 
 **Internal state:**
 - `addDialogOpen` — controls `AddLocationDialog` visibility
@@ -574,13 +584,14 @@ Shows all locations for the active profile. Allows creating, editing, and deleti
 
 **File:** `src/pages/InventoryPage.tsx`
 
-The main view. Displays items in a grid with filtering, searching, and CRUD operations.
+The main view. Displays items in a grid with filtering, searching, and CRUD operations. The `Topbar` contains both an **Add Item** button and a **Search icon button** for global search.
 
 | Prop | Type | Description |
 |---|---|---|
 | `profile` | `Profile` | Active profile |
 | `location` | `Location` | Active location |
 | `onBack` | `() → void` | Returns to `LocationSelectPage` |
+| `onOpenSearch` | `() → void` | Opens the `GlobalSearchPage` |
 
 **Internal state:**
 
@@ -605,6 +616,41 @@ The main view. Displays items in a grid with filtering, searching, and CRUD oper
 | `handleEdit(item)` | Sets `editingItem` and opens add dialog in edit mode |
 | `handleDialogClose()` | Closes dialog and resets `editingItem` |
 | `handleSaveItem(data)` | Calls `updateItem` (edit) or `addItem` (new) based on `editingItem` |
+
+---
+
+#### `GlobalSearchPage`
+
+**File:** `src/pages/GlobalSearchPage.tsx`
+
+A dedicated full-page search experience that searches **all items across all locations** for the active profile.
+
+| Prop | Type | Description |
+|---|---|---|
+| `profile` | `Profile` | The profile whose items will be searched |
+| `onBack` | `() → void` | Returns to the previous screen (`location-select` or `inventory`) |
+| `onNavigateToLocation` | `(location: Location) → void` | Called when user clicks a result; navigates to that location's inventory |
+
+**Internal state:**
+- `query` — the current search string
+- `allItems` — all items enriched with their location name and icon, loaded once on mount
+- `loading` — true while the async load is in progress
+
+**Data flow:**
+1. On mount, calls `locationsDB.getByProfile(profile.id)` to build a `locationId → Location` map.
+2. Calls `itemsDB.getAll()` and filters to only items whose `locationId` is in the map.
+3. Each result item is enriched into `EnrichedItem` (extends `Item` with `locationName`, `locationIcon`, `location`).
+4. `results` is `useMemo`-derived — re-computed on every `query` change, no debounce needed.
+
+**Search matches:** item `name`, `subtitle`, `description`, `tags[]`, `category`, and `locationName`.
+
+**UI states:**
+- **Idle** (empty query) — shows a Search icon and hint text with total item count.
+- **Loading** — shows a spinner while the async IDB load is in progress.
+- **Results** — shows a scrollable list of `EnrichedItem` rows with thumbnail, name, subtitle, location badge, tag pill, and stock count.
+- **Empty** — shown when query has text but no results match.
+
+Clicking a result calls `onNavigateToLocation(item.location)`, which sets `activeLocation` and navigates to `'inventory'` in `App.tsx`.
 
 ---
 
@@ -716,7 +762,7 @@ The clear button (`X` icon) only renders when `value` is non-empty.
 
 **File:** `src/components/layout/Topbar.tsx`
 
-Top navigation bar for the Inventory screen.
+Top navigation bar for the Inventory screen. Displays the Owlshelf logo, a breadcrumb trail, a Search icon, and the Add Item button.
 
 | Prop | Type | Description |
 |---|---|---|
@@ -724,8 +770,9 @@ Top navigation bar for the Inventory screen.
 | `location` | `Location` | Used to render the breadcrumb |
 | `onBack` | `() → void` | Back button handler |
 | `onAddItem` | `() → void` | "Add Item" button handler |
+| `onOpenSearch` | `() → void` | Search icon button handler — opens `GlobalSearchPage` |
 
-Renders a breadcrumb trail: `{emoji} {profile.name} › {icon} {location.name}`.
+Renders: `← back` · Owlshelf logo · `{profile.name} › {icon} {location.name}` · Search icon · Add Item button.
 
 ---
 
@@ -751,22 +798,23 @@ Changing the item type via the dropdown resets the category filter to `null` (ha
 
 **File:** `src/components/layout/AddLocationDialog.tsx`
 
-Modal dialog for adding or editing a location.
+Modal dialog for adding, editing, or deleting a location.
 
 | Prop | Type | Description |
 |---|---|---|
 | `open` | `boolean` | Controls visibility |
 | `profile` | `Profile` | Used to set `profileId` on save |
 | `editLocation` | `Location \| null \| undefined` | Pre-fills form in edit mode |
-| `onClose` | `() → void` | Called after save or cancel |
+| `onClose` | `() → void` | Called after save, delete, or cancel |
 | `onSave` | `(data: Omit<Location, "id" \| "itemCount">) → Promise<Location \| void>` | Async save handler |
-| `onDelete` | `((id: string) → Promise<void>) \| undefined` | If provided, shows "Delete Location" button (edit mode only) |
+| `onDelete` | `((id: string) → Promise<void>) \| undefined` | If provided, shows a red "Delete Location" button in the footer (edit mode only) |
 
 **Behaviour:**
 - `useEffect` on `[editLocation, open]` resets or pre-fills controlled fields.
 - Icon can be selected from `ICON_PRESETS` (emoji grid) or typed manually (max 4 chars).
 - Location name is required; shows an inline error if blank on submit.
-- Delete prompts a `window.confirm` before calling `onDelete`.
+- Delete button only appears in edit mode (`editLocation` is set) and only when `onDelete` is provided.
+- Delete prompts a `window.confirm` before calling `onDelete`, then closes the dialog.
 
 ---
 
@@ -933,4 +981,4 @@ Database: owlshelf-db  (version 1)
 
 ---
 
-*Last updated: 2026-07-20*
+*Last updated: 2026-07-29*

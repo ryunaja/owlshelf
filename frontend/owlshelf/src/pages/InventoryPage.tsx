@@ -12,9 +12,10 @@ interface InventoryPageProps {
   profile: Profile;
   location: Location;
   onBack: () => void;
+  onOpenSearch: () => void;
 }
 
-export function InventoryPage({ profile, location, onBack }: InventoryPageProps) {
+export function InventoryPage({ profile, location, onBack, onOpenSearch }: InventoryPageProps) {
   const { items, loading, addItem, updateItem, deleteItem } = useItems(location.id);
 
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
@@ -104,6 +105,7 @@ export function InventoryPage({ profile, location, onBack }: InventoryPageProps)
         location={location}
         onBack={onBack}
         onAddItem={() => setAddDialogOpen(true)}
+        onOpenSearch={onOpenSearch}
       />
 
       <div className="inventory-body">
