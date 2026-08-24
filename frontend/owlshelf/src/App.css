@@ -707,16 +707,28 @@
   color: var(--text);
 }
 
-.qty-value {
-  min-width: 40px;
+.qty-input {
+  width: 64px;
   text-align: center;
   font-size: 14px;
   font-weight: 600;
   color: var(--text);
+  border: none;
   border-left: 1px solid var(--border);
   border-right: 1px solid var(--border);
+  background: transparent;
   padding: 0 8px;
+  height: 36px;
   line-height: 36px;
+  outline: none;
+  -moz-appearance: textfield;
+}
+
+/* Hide browser spin buttons */
+.qty-input::-webkit-inner-spin-button,
+.qty-input::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
 }
 
 /* Condition selector */

@@ -1,12 +1,7 @@
 export type AccountType = "personal" | "business";
 
-export type ItemType =
-  | "book"
-  | "collection"
-  | "electronics"
-  | "clothing"
-  | "food"
-  | "other";
+// ItemType is a free-form string; the presets below are the built-in suggestions.
+export type ItemType = string;
 
 export type Condition = 1 | 2 | 3 | 4 | 5;
 
@@ -45,7 +40,16 @@ export interface CategoryFilter {
   count: number;
 }
 
-export const ITEM_TYPE_LABELS: Record<ItemType, string> = {
+export const ITEM_TYPE_PRESETS: string[] = [
+  "book",
+  "collection",
+  "electronics",
+  "clothing",
+  "food",
+  "other",
+];
+
+export const ITEM_TYPE_LABELS: Record<string, string> = {
   book: "Book",
   collection: "Collection",
   electronics: "Electronics",
@@ -53,3 +57,8 @@ export const ITEM_TYPE_LABELS: Record<ItemType, string> = {
   food: "Food",
   other: "Other",
 };
+
+/** Returns a human-readable label for any item type (preset or custom). */
+export function getItemTypeLabel(type: string): string {
+  return ITEM_TYPE_LABELS[type] ?? (type ? type.charAt(0).toUpperCase() + type.slice(1) : "Other");
+}

@@ -1,19 +1,10 @@
 import { Minus } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { ItemType, CategoryFilter } from "@/types/item";
-import { ITEM_TYPE_LABELS } from "@/types/item";
-
-const ALL_TYPES: { value: ItemType | "all"; label: string }[] = [
-  { value: "all", label: "All Types" },
-  { value: "book", label: ITEM_TYPE_LABELS.book },
-  { value: "collection", label: ITEM_TYPE_LABELS.collection },
-  { value: "electronics", label: ITEM_TYPE_LABELS.electronics },
-  { value: "clothing", label: ITEM_TYPE_LABELS.clothing },
-  { value: "food", label: ITEM_TYPE_LABELS.food },
-  { value: "other", label: ITEM_TYPE_LABELS.other },
-];
+import type { ItemType, CategoryFilter, Item } from "@/types/item";
+import { ITEM_TYPE_PRESETS, getItemTypeLabel } from "@/types/item";
 
 interface SidebarProps {
+  items: Item[];                          // full unfiltered list — used to discover custom types
   categories: CategoryFilter[];
   activeCategory: string | null;
   onCategoryChange: (cat: string | null) => void;
@@ -22,12 +13,25 @@ interface SidebarProps {
 }
 
 export function Sidebar({
+  items,
   categories,
   activeCategory,
   onCategoryChange,
   activeType,
   onTypeChange,
 }: SidebarProps) {
+  // Build type list: hardcoded presets first, then any extra custom types from real items
+  const presetSet = new Set<string>(ITEM_TYPE_PRESETS);
+  const customTypes = Array.from(
+    new Set(items.map((i) => i.itemType).filter((t) => t && !presetSet.has(t)))
+  );
+
+  const allTypes: { value: ItemType | "all"; label: string }[] = [
+    { value: "all", label: "All Types" },
+    ...ITEM_TYPE_PRESETS.map((v) => ({ value: v, label: getItemTypeLabel(v) })),
+    ...customTypes.map((v) => ({ value: v, label: getItemTypeLabel(v) })),
+  ];
+
   return (
     <aside className="sidebar">
       <h2 className="sidebar-title">Sort &amp; Sift</h2>
@@ -48,7 +52,7 @@ export function Sidebar({
             onCategoryChange(null); // reset category when type changes
           }}
         >
-          {ALL_TYPES.map((t) => (
+          {allTypes.map((t) => (
             <option key={t.value} value={t.value}>
               {t.label}
             </option>
@@ -94,9 +98,7 @@ export function Sidebar({
                   activeCategory === cat.name && "sidebar-filter-btn--active"
                 )}
                 onClick={() =>
-                  onCategoryChange(
-                    activeCategory === cat.name ? null : cat.name
-                  )
+                  onCategoryChange(activeCategory === cat.name ? null : cat.name)
                 }
               >
                 <span className="filter-icon" aria-hidden="true" />

@@ -110,6 +110,7 @@ export function InventoryPage({ profile, location, onBack, onOpenSearch }: Inven
 
       <div className="inventory-body">
         <Sidebar
+          items={items}
           categories={categories}
           activeCategory={activeCategory}
           onCategoryChange={setActiveCategory}

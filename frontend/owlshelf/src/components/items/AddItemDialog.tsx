@@ -1,8 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { X, Plus, Minus, Tag, Upload } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Item, ItemType, Condition } from "@/types/item";
-import { ITEM_TYPE_LABELS } from "@/types/item";
+import { ITEM_TYPE_PRESETS, ITEM_TYPE_LABELS } from "@/types/item";
 
 interface AddItemDialogProps {
   open: boolean;
@@ -20,9 +20,12 @@ const CONDITIONS: { value: Condition; label: string }[] = [
   { value: 5, label: "Pristine" },
 ];
 
-const ITEM_TYPES: { value: ItemType; label: string }[] = Object.entries(
-  ITEM_TYPE_LABELS
-).map(([value, label]) => ({ value: value as ItemType, label }));
+const PRESET_OPTIONS = ITEM_TYPE_PRESETS.map((v) => ({
+  value: v,
+  label: ITEM_TYPE_LABELS[v] ?? v,
+}));
+
+const CUSTOM_SENTINEL = "__custom__";
 
 export function AddItemDialog({
   open,
@@ -36,36 +39,80 @@ export function AddItemDialog({
   const [quantity, setQuantity] = useState(1);
   const [condition, setCondition] = useState<Condition>(3);
   const [itemType, setItemType] = useState<ItemType>("book");
+  const [customType, setCustomType] = useState("");
+  const [isCustomType, setIsCustomType] = useState(false);
   const [category, setCategory] = useState("Uncategorized");
   const [imageUrl, setImageUrl] = useState<string | undefined>();
+
+  const customTypeInputRef = useRef<HTMLInputElement>(null);
 
   /* Pre-fill when editing */
   useEffect(() => {
     if (editItem) {
       setQuantity(editItem.stock);
       setCondition(editItem.condition);
-      setItemType(editItem.itemType);
       setCategory(editItem.category || "Uncategorized");
       setImageUrl(editItem.imageUrl);
+
+      const isPreset = ITEM_TYPE_PRESETS.includes(editItem.itemType);
+      if (isPreset) {
+        setItemType(editItem.itemType);
+        setIsCustomType(false);
+        setCustomType("");
+      } else {
+        setItemType(CUSTOM_SENTINEL);
+        setIsCustomType(true);
+        setCustomType(editItem.itemType);
+      }
     } else {
       setQuantity(1);
       setCondition(3);
       setItemType("book");
+      setIsCustomType(false);
+      setCustomType("");
       setCategory("Uncategorized");
       setImageUrl(undefined);
     }
   }, [editItem, open]);
 
+  /* Focus custom input when it appears */
+  useEffect(() => {
+    if (isCustomType) {
+      setTimeout(() => customTypeInputRef.current?.focus(), 50);
+    }
+  }, [isCustomType]);
+
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
     const reader = new FileReader();
     reader.onload = (event) => {
       setImageUrl(event.target?.result as string);
     };
     reader.readAsDataURL(file);
   };
+
+  const handleTypeSelectChange = (val: string) => {
+    if (val === CUSTOM_SENTINEL) {
+      setItemType(CUSTOM_SENTINEL);
+      setIsCustomType(true);
+      setCustomType("");
+    } else {
+      setItemType(val);
+      setIsCustomType(false);
+      setCustomType("");
+    }
+  };
+
+  const handleQuantityInput = (raw: string) => {
+    const n = parseInt(raw, 10);
+    if (!isNaN(n) && n >= 0) setQuantity(n);
+    else if (raw === "") setQuantity(0);
+  };
+
+  const resolvedItemType: ItemType = isCustomType
+    ? customType.trim() || "other"
+    : itemType;
 
   const handleSave = () => {
     const nameInput = document.getElementById("field-name") as HTMLInputElement;
@@ -76,7 +123,7 @@ export function AddItemDialog({
 
     const name = nameInput?.value || "";
     const subtitle = subtitleInput?.value || "";
-    const tags = tagsInput?.value.split(",").map(t => t.trim()).filter(Boolean) || [];
+    const tags = tagsInput?.value.split(",").map((t) => t.trim()).filter(Boolean) || [];
     const cat = categoryInput?.value || "Uncategorized";
     const description = descInput?.value || "";
 
@@ -84,7 +131,7 @@ export function AddItemDialog({
       onSave({
         name,
         subtitle,
-        itemType,
+        itemType: resolvedItemType,
         category: cat,
         stock: quantity,
         tags,
@@ -137,11 +184,11 @@ export function AddItemDialog({
         <div className="dialog-body">
           {/* Image upload zone */}
           <label className="upload-zone" tabIndex={0} style={{ cursor: "pointer" }}>
-            <input 
-              type="file" 
-              accept="image/*" 
-              style={{ display: "none" }} 
-              onChange={handleImageUpload} 
+            <input
+              type="file"
+              accept="image/*"
+              style={{ display: "none" }}
+              onChange={handleImageUpload}
             />
             {imageUrl ? (
               <img
@@ -196,15 +243,30 @@ export function AddItemDialog({
                 <select
                   id="field-type"
                   className="field-input type-select"
-                  value={itemType}
-                  onChange={(e) => setItemType(e.target.value as ItemType)}
+                  value={isCustomType ? CUSTOM_SENTINEL : itemType}
+                  onChange={(e) => handleTypeSelectChange(e.target.value)}
                 >
-                  {ITEM_TYPES.map((t) => (
+                  {PRESET_OPTIONS.map((t) => (
                     <option key={t.value} value={t.value}>
                       {t.label}
                     </option>
                   ))}
+                  <option value={CUSTOM_SENTINEL}>Custom…</option>
                 </select>
+
+                {/* Revealed when "Custom…" is chosen */}
+                {isCustomType && (
+                  <input
+                    ref={customTypeInputRef}
+                    id="field-custom-type"
+                    type="text"
+                    placeholder="e.g. Vinyl, Manga, Spare Parts…"
+                    value={customType}
+                    onChange={(e) => setCustomType(e.target.value)}
+                    className="field-input"
+                    style={{ marginTop: 6 }}
+                  />
+                )}
               </div>
 
               <div className="field-group" style={{ flex: 1 }}>
@@ -221,21 +283,27 @@ export function AddItemDialog({
               </div>
             </div>
 
-            {/* Quantity */}
+            {/* Quantity — editable number input with ± stepper */}
             <div className="field-group">
-              <label className="field-label">Stock Quantity</label>
+              <label htmlFor="qty-input" className="field-label">Stock Quantity</label>
               <div className="qty-control">
                 <button
                   id="qty-decrease"
                   className="qty-btn"
-                  onClick={() => setQuantity((q) => Math.max(1, q - 1))}
+                  onClick={() => setQuantity((q) => Math.max(0, q - 1))}
                   aria-label="Decrease quantity"
                 >
                   <Minus size={14} strokeWidth={2.5} />
                 </button>
-                <span className="qty-value" aria-live="polite">
-                  {quantity}
-                </span>
+                <input
+                  id="qty-input"
+                  type="number"
+                  min={0}
+                  value={quantity}
+                  onChange={(e) => handleQuantityInput(e.target.value)}
+                  className="qty-input"
+                  aria-label="Stock quantity"
+                />
                 <button
                   id="qty-increase"
                   className="qty-btn"
