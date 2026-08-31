@@ -10,20 +10,24 @@
 2. [Tech Stack](#tech-stack)
 3. [Project Structure](#project-structure)
 4. [Getting Started](#getting-started)
-5. [Frontend](#frontend)
+5. [Application Workflows](#application-workflows)
+   - [User Navigation & Feature Workflow](#user-navigation--feature-workflow)
+   - [Data & Offline-First Mutation Workflow](#data--offline-first-mutation-workflow)
+   - [Development & Contribution Workflow](#development--contribution-workflow)
+6. [Frontend](#frontend)
    - [App Navigation Flow](#app-navigation-flow)
    - [Types (`src/types/`)](#types-srctypes)
    - [Data Layer (`src/data/`)](#data-layer-srcdata)
    - [Library / Utilities (`src/lib/`)](#library--utilities-srclib)
    - [Pages (`src/pages/`)](#pages-srcpages)
    - [Components (`src/components/`)](#components-srccomponents)
-6. [Backend](#backend)
+7. [Backend](#backend)
    - [Configuration](#configuration)
    - [Schemas](#schemas)
    - [Routers / Endpoints](#routers--endpoints)
-7. [Database Design](#database-design)
-8. [Coding Conventions](#coding-conventions)
-9. [Adding New Features — Practical Guide](#adding-new-features--practical-guide)
+8. [Database Design](#database-design)
+9. [Coding Conventions](#coding-conventions)
+10. [Adding New Features — Practical Guide](#adding-new-features--practical-guide)
 
 ---
 
@@ -171,6 +175,100 @@ uvicorn main:app --reload
 | `DEBUG` | `False` | Enables Uvicorn hot-reload |
 | `DATABASE_URL` | `"sqlite:///./dev.db"` | SQLAlchemy database URL |
 | `SECRET_KEY` | `"change-me"` | Secret for signing tokens |
+
+---
+
+## Application Workflows
+
+### User Navigation & Feature Workflow
+
+This diagram illustrates the user's primary journey through the Owlshelf interface:
+
+```mermaid
+flowchart TD
+    Start([Open Owlshelf]) --> ProfileSelect[1. Profile Selection\nPersonal vs Business]
+    
+    ProfileSelect -->|Select Profile| LocSelect[2. Location Selection\nShelves, Rooms, Storage]
+    
+    LocSelect -->|Select Location| Inventory[3. Inventory Page\nBrowse Items in Location]
+    LocSelect -->|Click + Add Location| AddLocModal[Add/Edit Location Dialog]
+    AddLocModal -->|Save/Delete| LocSelect
+    
+    LocSelect -->|Click Search Icon| GlobalSearch[4. Global Search Page\nSearch Across All Locations]
+    Inventory -->|Click Search Icon| GlobalSearch
+    GlobalSearch -->|Click Result Item| Inventory
+    GlobalSearch -->|Click Back| PrevScreen[Return to Origin Screen]
+    
+    Inventory -->|Filter by Type / Category| FilteredItems[Filtered Item Grid]
+    Inventory -->|Search Name / Subtitle / Tags| SearchItems[Searched Item Grid]
+    Inventory -->|Click + Add Item| AddItemModal[Add Item Dialog]
+    Inventory -->|Click Card Menu -> Edit| EditItemModal[Edit Item Dialog]
+    Inventory -->|Click Card| DetailModal[Item Detail Dialog]
+    
+    AddItemModal -->|Save Item| Inventory
+    EditItemModal -->|Save Changes| Inventory
+    Inventory -->|Click Back| LocSelect
+    LocSelect -->|Click Back| ProfileSelect
+```
+
+---
+
+### Data & Offline-First Mutation Workflow
+
+How data operations flow between the UI, React Hooks, and client-side IndexedDB:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as Component (e.g. AddItemDialog)
+    participant Hook as React Hook (useItems / useLocations)
+    participant DB as IndexedDB Layer (lib/database.ts)
+    participant IDBStore as Browser IndexedDB Storage
+
+    User->>UI: Submit new item / edit item
+    UI->>Hook: Call addItem(locationId, data)
+    Hook->>DB: itemsDB.put(newItem)
+    DB->>IDBStore: IDBTransaction (readwrite) -> put()
+    IDBStore-->>DB: Success
+    
+    rect rgb(240, 245, 255)
+        Note over Hook,DB: Update Location Item Count (Denormalized)
+        Hook->>DB: locationsDB.get(locationId)
+        DB->>IDBStore: get() location record
+        IDBStore-->>DB: Return Location
+        Hook->>DB: locationsDB.put({ ...location, itemCount: count + 1 })
+        DB->>IDBStore: put() updated Location
+    end
+
+    Hook->>Hook: Optimistic State Update (setItems)
+    Hook-->>UI: UI re-renders instantly with new item
+```
+
+---
+
+### Development & Contribution Workflow
+
+Recommended flow when adding features or fixing bugs:
+
+```mermaid
+flowchart LR
+    Branch[1. Create Branch\nfeature/xxx or fix/xxx] --> Dev[2. Local Dev\nnpm run dev]
+    Dev --> Test[3. Verification\nManual Test + Offline Check]
+    Test --> Check[4. Typecheck & Lint\nnpm run build && npm run lint]
+    Check --> Commit[5. Git Commit & Push]
+    Commit --> PR[6. Review & Merge]
+```
+
+1. **Branch out**: Create feature branch from `main` or active dev branch (e.g., `git checkout -b feature/item-tag-filter`).
+2. **Local development**: Run `npm run dev` in `frontend/owlshelf`. Test components offline in browser DevTools.
+3. **Follow coding conventions**:
+   - Prefer `@/components/ui` primitives.
+   - Use `cn()` for Tailwind class merges.
+   - Always read/write data via `@/lib/useDB.ts` and `@/lib/database.ts`.
+4. **Validation before committing**:
+   - `npm run lint` — check ESLint rules.
+   - `npm run build` — TypeScript typecheck and build validation.
 
 ---
 
