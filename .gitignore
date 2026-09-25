@@ -1,0 +1,41 @@
+# Root level ignores
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+.idea
+.vscode/
+!.vscode/extensions.json
+
+# Frontend ignores
+frontend/owlshelf/node_modules/
+frontend/owlshelf/dist/
+frontend/owlshelf/dist-ssr/
+frontend/owlshelf/*.local
+frontend/owlshelf/.vite/
+frontend/owlshelf/dev-dist/
+frontend/owlshelf/postcss.config.js
+frontend/owlshelf/tailwind.config.*
+frontend/owlshelf/.cache/
+frontend/owlshelf/coverage/
+frontend/owlshelf/.env
+frontend/owlshelf/.env.*
+
+# Backend ignores
+backend/__pycache__/
+backend/*.py[cod]
+backend/*$py.class
+backend/.pytest_cache/
+backend/.venv/
+backend/venv/
+backend/env/
+backend/ENV/
+backend/dist/
+backend/build/
+backend/*.egg-info/
+backend/.env
+backend/.env.*
+backend/*.db
+backend/*.sqlite3

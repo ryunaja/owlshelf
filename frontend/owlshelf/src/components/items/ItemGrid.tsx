@@ -3,10 +3,12 @@ import type { Item } from "@/types/item";
 
 interface ItemGridProps {
   items: Item[];
-  onItemClick?: (item: Item) => void;
+  onItemClick: (item: Item) => void;
+  onEdit: (item: Item) => void;
+  onDelete: (id: string) => void;
 }
 
-export function ItemGrid({ items, onItemClick }: ItemGridProps) {
+export function ItemGrid({ items, onItemClick, onEdit, onDelete }: ItemGridProps) {
   if (items.length === 0) {
     return (
       <div className="grid-empty">
@@ -19,7 +21,12 @@ export function ItemGrid({ items, onItemClick }: ItemGridProps) {
     <div className="item-grid" role="list" aria-label="Inventory items">
       {items.map((item) => (
         <div key={item.id} role="listitem">
-          <ItemCard item={item} onClick={() => onItemClick?.(item)} />
+          <ItemCard
+            item={item}
+            onClick={() => onItemClick(item)}
+            onEdit={onEdit}
+            onDelete={onDelete}
+          />
         </div>
       ))}
     </div>

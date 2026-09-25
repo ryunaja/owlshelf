@@ -38,3 +38,7 @@ tailwind.config.*
 # Misc caches and reports
 .cache
 coverage
+
+# SSL Certificates
+*.pem
+*.key
