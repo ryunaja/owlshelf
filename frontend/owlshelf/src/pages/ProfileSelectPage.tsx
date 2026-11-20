@@ -100,6 +100,35 @@ export function ProfileSelectPage({ onSelect }: ProfileSelectPageProps) {
               </button>
             ))
           )}
+
+          {/* Create Profile — persistent entry point: profiles are rooms,
+              so another can be created at any time, not just at first run. */}
+          {!loading && profiles.length > 0 && (
+            <button
+              id="btn-add-profile"
+              className="profile-card"
+              style={{
+                borderStyle: "dashed",
+                borderColor: "var(--border-dashed)",
+                background: "transparent",
+                boxShadow: "none",
+              }}
+              onClick={() => setAddDialogOpen(true)}
+            >
+              <span
+                className="profile-card-emoji"
+                style={{ fontSize: 24, color: "var(--text-muted)", lineHeight: 1 }}
+              >
+                <Plus size={22} strokeWidth={1.5} />
+              </span>
+              <div>
+                <p className="profile-card-name">Create Profile</p>
+                <p className="profile-card-type">
+                  Set up another shelf on this device
+                </p>
+              </div>
+            </button>
+          )}
         </div>
 
         {error && (
