@@ -7,7 +7,7 @@
  *   items      keyPath=id  index: locationId
  *
  * Version history
- *   1 – initial schema + seed data
+ *   1 – initial schema + seed data (dev builds only; prod installs start empty)
  */
 
 import type { Profile, Location, Item } from "@/types/item";
@@ -54,8 +54,15 @@ export function openDB(): Promise<IDBDatabase> {
         itemStore.createIndex("locationId", "locationId", { unique: false });
       }
 
-      // ── Seed on first install (version 1 only) ─────────────────────────
-      if (event.oldVersion === 0) {
+      // ── Seed on first install (version 1 only, dev builds only) ────────
+      // Demo data must never land on a real user's shelf (sync plan §6.1
+      // rule 10). `vite build` replaces import.meta.env.DEV with `false`,
+      // so production first-installs start empty and land on the
+      // create-profile empty state. Dev servers keep the seed for local
+      // development, and existing installs (oldVersion > 0) are never
+      // touched by this gate — their demo rows are removed later by the
+      // v2 migration, not here.
+      if (event.oldVersion === 0 && import.meta.env.DEV) {
         const profileStore  = upgradeTx.objectStore("profiles");
         const locationStore = upgradeTx.objectStore("locations");
         const itemStore     = upgradeTx.objectStore("items");
