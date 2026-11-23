@@ -11,7 +11,13 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: "autoUpdate",
-      includeAssets: ["favicon.svg", "icons.svg"],
+      // Registration is owned by src/lib/pwa.ts: the injected script only
+      // calls register() on load, so a new worker activates without the
+      // running page ever reloading (and a long-lived tab never re-checks).
+      injectRegister: null,
+      // Only files that exist; the old list named a favicon.svg that never
+      // shipped (plan §12.14: ship the icon the manifest names).
+      includeAssets: ["favicon.png", "icons.svg", "logo.png"],
       manifest: {
         name: "owlshelf",
         short_name: "owlshelf",
@@ -22,10 +28,12 @@ export default defineConfig({
         theme_color: "#863bff",
         icons: [
           {
-            src: "/favicon.svg",
-            sizes: "48x46",
-            type: "image/svg+xml",
-            purpose: "any maskable",
+            // The real app icon: 1024×1024 PNG (the old "48x46" sizes value
+            // never matched any shipped asset).
+            src: "/favicon.png",
+            sizes: "1024x1024",
+            type: "image/png",
+            purpose: "any",
           },
         ],
       },
@@ -33,7 +41,9 @@ export default defineConfig({
         globPatterns: ["**/*.{js,css,html,svg,png,ico,json,webmanifest}"],
       },
       devOptions: {
-        enabled: true,
+        // Plan §12.14: dev SWs serve stale cached bundles and break
+        // migration debugging. Use ?clear-sw when a SW needs evicting.
+        enabled: false,
       },
     }),
   ],
@@ -42,7 +52,7 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      "@": path.resolve(__dirname, "./src"),
+      "@": path.resolve(import.meta.dirname, "./src"),
     },
   },
 });
