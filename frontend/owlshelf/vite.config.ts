@@ -33,7 +33,7 @@ export default defineConfig({
         globPatterns: ["**/*.{js,css,html,svg,png,ico,json,webmanifest}"],
       },
       devOptions: {
-        enabled: true,
+        enabled: false,
       },
     }),
   ],
@@ -42,7 +42,7 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      "@": path.resolve(__dirname, "./src"),
+      "@": path.resolve(import.meta.dirname, "./src"),
     },
   },
 });
