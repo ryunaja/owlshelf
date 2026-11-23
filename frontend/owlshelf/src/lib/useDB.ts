@@ -4,6 +4,12 @@
  * useProfiles()          – read profiles; add a profile
  * useLocations(id)       – read locations for a profile; add a location
  * useItems(id)           – read items for a location; add / update / delete
+ *
+ * `loading` is DERIVED from "do I hold rows for the current key", never set
+ * from the effect. A synchronous `setLoading(true)` inside `useEffect` is a
+ * cascading render (react-hooks/set-state-in-effect), and the keyed shape
+ * also fixes a real bug: a read that resolves after the id changed used to
+ * paint the previous profile's rows under the new one.
  */
 
 import { useState, useEffect, useCallback } from "react";
@@ -20,6 +26,17 @@ function nanoid(): string {
   return Math.random().toString(36).slice(2, 9);
 }
 
+/** Rows plus the key they were read for. `null` means "no read yet". */
+interface ReadState<T> {
+  key: string;
+  rows: T[];
+}
+
+/** Rows for `key`, or `null` while the read for that key is outstanding. */
+function rowsFor<T>(state: ReadState<T> | null, key: string): T[] | null {
+  return state !== null && state.key === key ? state.rows : null;
+}
+
 // ─── useProfiles ──────────────────────────────────────────────────────────
 
 interface UseProfilesResult {
@@ -33,32 +50,50 @@ interface UseProfilesResult {
 }
 
 export function useProfiles(): UseProfilesResult {
-  const [profiles, setProfiles] = useState<Profile[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [profiles, setProfiles] = useState<Profile[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      setProfiles(await profilesDB.getAll());
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  // The read is an external-system subscription, so the state lands in the
+  // promise callback — the shape react-hooks/set-state-in-effect endorses.
+  // It cannot see through `async`/`await`, so the equivalent async form is
+  // reported even though the setState calls are equally deferred.
+  const load = useCallback(
+    () =>
+      profilesDB.getAll().then(
+        (rows) => {
+          setProfiles(rows);
+          setError(null);
+        },
+        (e: unknown) => {
+          setError(String(e));
+          // Stop the spinner: without rows the page would wait forever.
+          setProfiles([]);
+        },
+      ),
+    [],
+  );
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { void load(); }, [load]);
+
+  const reload = useCallback(async () => {
+    setProfiles(null);
+    await load();
+  }, [load]);
 
   const addProfile = useCallback(async (data: Omit<Profile, "id">) => {
     // The facade mints the room and the profile row in one transaction
     // (profile.id === roomId, plan §6.7) — never a roomless profile.
     const profile = await profilesDB.create(data);
-    setProfiles((prev) => [...prev, profile]);
+    setProfiles((prev) => [...(prev ?? []), profile]);
   }, []);
 
-  return { profiles, loading, error, addProfile, reload: load };
+  return {
+    profiles: profiles ?? [],
+    loading: profiles === null,
+    error,
+    addProfile,
+    reload,
+  };
 }
 
 // ─── useLocations ─────────────────────────────────────────────────────────
@@ -73,22 +108,37 @@ interface UseLocationsResult {
 }
 
 export function useLocations(profileId: string): UseLocationsResult {
-  const [locations, setLocations] = useState<Location[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [state, setState] = useState<ReadState<Location> | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    try {
-      setLoading(true);
-      setLocations(await locationsDB.getByProfile(profileId));
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setLoading(false);
-    }
-  }, [profileId]);
+  const load = useCallback(
+    () =>
+      locationsDB.getByProfile(profileId).then(
+        (rows) => {
+          setState({ key: profileId, rows });
+          setError(null);
+        },
+        (e: unknown) => {
+          setError(String(e));
+          setState({ key: profileId, rows: [] });
+        },
+      ),
+    [profileId],
+  );
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { void load(); }, [load]);
+
+  const rows = rowsFor(state, profileId);
+
+  const setRows = useCallback(
+    (update: (rows: Location[]) => Location[]) => {
+      setState((prev) => ({
+        key: profileId,
+        rows: update(rowsFor(prev, profileId) ?? []),
+      }));
+    },
+    [profileId],
+  );
 
   const addLocation = useCallback(
     async (data: Omit<Location, "id" | "itemCount">) => {
@@ -98,23 +148,30 @@ export function useLocations(profileId: string): UseLocationsResult {
         ...data,
       };
       await locationsDB.put(loc);
-      setLocations((prev) => [...prev, loc]);
+      setRows((prev) => [...prev, loc]);
       return loc;
     },
-    []
+    [setRows]
   );
 
   const updateLocation = useCallback(async (updated: Location) => {
     await locationsDB.put(updated);
-    setLocations((prev) => prev.map((l) => (l.id === updated.id ? updated : l)));
-  }, []);
+    setRows((prev) => prev.map((l) => (l.id === updated.id ? updated : l)));
+  }, [setRows]);
 
   const deleteLocation = useCallback(async (id: string) => {
     await locationsDB.delete(id);
-    setLocations((prev) => prev.filter((l) => l.id !== id));
-  }, []);
+    setRows((prev) => prev.filter((l) => l.id !== id));
+  }, [setRows]);
 
-  return { locations, loading, error, addLocation, updateLocation, deleteLocation };
+  return {
+    locations: rows ?? [],
+    loading: rows === null,
+    error,
+    addLocation,
+    updateLocation,
+    deleteLocation,
+  };
 }
 
 // ─── useItems ─────────────────────────────────────────────────────────────
@@ -141,22 +198,37 @@ interface UseItemsResult {
 }
 
 export function useItems(locationId: string): UseItemsResult {
-  const [items, setItems] = useState<Item[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [state, setState] = useState<ReadState<Item> | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    try {
-      setLoading(true);
-      setItems(await itemsDB.getByLocation(locationId));
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setLoading(false);
-    }
-  }, [locationId]);
+  const load = useCallback(
+    () =>
+      itemsDB.getByLocation(locationId).then(
+        (rows) => {
+          setState({ key: locationId, rows });
+          setError(null);
+        },
+        (e: unknown) => {
+          setError(String(e));
+          setState({ key: locationId, rows: [] });
+        },
+      ),
+    [locationId],
+  );
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { void load(); }, [load]);
+
+  const rows = rowsFor(state, locationId);
+
+  const setRows = useCallback(
+    (update: (rows: Item[]) => Item[]) => {
+      setState((prev) => ({
+        key: locationId,
+        rows: update(rowsFor(prev, locationId) ?? []),
+      }));
+    },
+    [locationId],
+  );
 
   const addItem = useCallback(async (locId: string, data: NewItemData) => {
     const item: Item = {
@@ -173,21 +245,21 @@ export function useItems(locationId: string): UseItemsResult {
       imageUrl: data.imageUrl,
     };
     await itemsDB.put(item);
-    
+
     // Update location count
     const loc = await locationsDB.get(locId);
     if (loc) {
       loc.itemCount++;
       await locationsDB.put(loc);
     }
-    
-    setItems((prev) => [...prev, item]);
-  }, []);
+
+    setRows((prev) => [...prev, item]);
+  }, [setRows]);
 
   const updateItem = useCallback(async (updated: Item) => {
     await itemsDB.put(updated);
-    setItems((prev) => prev.map((i) => (i.id === updated.id ? updated : i)));
-  }, []);
+    setRows((prev) => prev.map((i) => (i.id === updated.id ? updated : i)));
+  }, [setRows]);
 
   const deleteItem = useCallback(async (id: string) => {
     const item = await itemsDB.get(id);
@@ -199,8 +271,15 @@ export function useItems(locationId: string): UseItemsResult {
       }
     }
     await itemsDB.delete(id);
-    setItems((prev) => prev.filter((i) => i.id !== id));
-  }, []);
+    setRows((prev) => prev.filter((i) => i.id !== id));
+  }, [setRows]);
 
-  return { items, loading, error, addItem, updateItem, deleteItem };
+  return {
+    items: rows ?? [],
+    loading: rows === null,
+    error,
+    addItem,
+    updateItem,
+    deleteItem,
+  };
 }

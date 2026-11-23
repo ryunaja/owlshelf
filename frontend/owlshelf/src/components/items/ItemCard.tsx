@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Diamond, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { renderableImageUrl } from "@/lib/media";
 import type { Item } from "@/types/item";
 
 interface ItemCardProps {
@@ -25,6 +26,7 @@ function ConditionDots({ value }: { value: number }) {
 
 export function ItemCard({ item, onClick, onEdit, onDelete }: ItemCardProps) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const imageSrc = renderableImageUrl(item.imageUrl);
 
   const conditionLabel = [
     "",
@@ -48,9 +50,9 @@ export function ItemCard({ item, onClick, onEdit, onDelete }: ItemCardProps) {
     >
       {/* Image area */}
       <div className="card-image-wrap">
-        {item.imageUrl ? (
+        {imageSrc ? (
           <img
-            src={item.imageUrl}
+            src={imageSrc}
             alt={item.name}
             className="card-image"
             loading="lazy"

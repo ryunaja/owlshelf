@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { X, User } from "lucide-react";
 import type { Profile, AccountType } from "@/types/item";
 
@@ -15,23 +15,20 @@ interface AddProfileDialogProps {
   onSave: (data: Omit<Profile, "id">) => Promise<void>;
 }
 
+/** Gate only — no hooks, so closing the dialog unmounts the form below and
+ *  the next open starts from the defaults. That replaces the reset-on-open
+ *  effect, which was a synchronous setState in an effect body. */
 export function AddProfileDialog({ open, onClose, onSave }: AddProfileDialogProps) {
+  if (!open) return null;
+  return <AddProfileForm onClose={onClose} onSave={onSave} />;
+}
+
+function AddProfileForm({ onClose, onSave }: Omit<AddProfileDialogProps, "open">) {
   const [name, setName] = useState("");
   const [type, setType] = useState<AccountType>("personal");
   const [avatarEmoji, setAvatarEmoji] = useState("👤");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-
-  useEffect(() => {
-    if (open) {
-      setName("");
-      setType("personal");
-      setAvatarEmoji("👤");
-      setError("");
-    }
-  }, [open]);
-
-  if (!open) return null;
 
   const handleSave = async () => {
     if (!name.trim()) {

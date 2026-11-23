@@ -30,9 +30,21 @@ import {
   type StagedRow,
   type SnapshotRow,
 } from "./stores";
+import { newRoom, roomMetaKey } from "./roomMeta";
 
 const DB_NAME = "owlshelf-db";
 const DB_VERSION = 2;
+
+/** Dev-only seed gate. `import.meta.env` is a Vite define; under the Node
+ *  harness it is absent, so the guard has to survive its absence rather than
+ *  assume it (the harness opens this exact class — plan §13). */
+const IS_DEV = (() => {
+  try {
+    return import.meta.env.DEV === true;
+  } catch {
+    return false;
+  }
+})();
 
 export class OwlshelfDB extends Dexie {
   profiles!: Table<{ id: string }, string>;
@@ -47,8 +59,11 @@ export class OwlshelfDB extends Dexie {
   meta!: Table<MetaRow, string>;
   snapshots!: Table<SnapshotRow, string>;
 
-  constructor() {
-    super(DB_NAME);
+  /** The name is a parameter so the execution harness (plan §13) opens the
+   *  SHIPPED schema — same class, same upgrade transaction — under an
+   *  isolated database per test instead of a re-declared copy of the stores. */
+  constructor(name: string = DB_NAME) {
+    super(name);
 
     // v1 — the raw schema exactly as the pre-Dexie bundle created it.
     this.version(1).stores(V1_STORES);
@@ -78,24 +93,22 @@ export class OwlshelfDB extends Dexie {
         };
         await tx.table("meta").put({ key: META_KEYS.migrate, ...progress });
       });
+
+    // Demo data must never land on a real user's shelf (plan §6.1 rule 10).
+    // Same gate the raw layer used: fresh installs only, dev builds only. The
+    // seeds keep their legacy deterministic ids (p1, loc-storage, …) on
+    // purpose: the migration then remaps them exactly as a real legacy
+    // install would be, so every fresh dev install exercises that path.
+    this.on("populate", (tx) => {
+      if (!IS_DEV) return;
+      mockProfiles.forEach((p) => tx.table("profiles").put(p));
+      mockLocations.forEach((l) => tx.table("locations").put(l));
+      mockItems.forEach((i) => tx.table("items").put(i));
+    });
   }
 }
 
 export const db = new OwlshelfDB();
-
-// ─── Dev seed (unchanged contract; never in prod) ──────────────────────────
-
-// Demo data must never land on a real user's shelf (plan §6.1 rule 10).
-// Same gate the raw layer used: fresh installs only, dev builds only. The
-// seeds keep their legacy deterministic ids (p1, loc-storage, …) on purpose:
-// the migration then remaps them exactly as a real legacy install would be,
-// so every fresh dev install exercises the migration path.
-db.on("populate", (tx) => {
-  if (!import.meta.env.DEV) return;
-  mockProfiles.forEach((p) => tx.table("profiles").put(p));
-  mockLocations.forEach((l) => tx.table("locations").put(l));
-  mockItems.forEach((i) => tx.table("items").put(i));
-});
 
 // ─── upgrade-blocking banner (plan §12.6) ─────────────────────────────────
 
@@ -163,13 +176,16 @@ export function getDeviceId(): Promise<string> {
 
 // ─── meta helpers ─────────────────────────────────────────────────────────
 
+// Instance-scoped implementations live in roomMeta.ts so the worker and the
+// execution harness run the same code; these are the singleton-bound aliases
+// the app already imports.
 export async function getRoom(roomId: string): Promise<Room | undefined> {
-  const row = await db.meta.get(`${META_KEYS.roomPrefix}${roomId}`);
+  const row = await db.meta.get(roomMetaKey(roomId));
   return (row as unknown as Room) ?? undefined;
 }
 
 export async function putRoom(room: Room): Promise<void> {
-  await db.meta.put({ key: `${META_KEYS.roomPrefix}${room.roomId}`, ...room });
+  await db.meta.put({ key: roomMetaKey(room.roomId), ...room });
 }
 
 // ─── profile creation (plan §6.7 create) ──────────────────────────────────
@@ -198,22 +214,15 @@ export async function createProfile(data: Omit<Profile, "id">): Promise<Profile>
   const deviceId8 = deviceId.replace(/-/g, "").slice(0, 8);
   const roomId = `${deviceId8}-${nanoid()}`;
   const now = Date.now();
-  const room: Room = {
+  const room: Room = newRoom(
     roomId,
-    profileId: roomId,
-    relayUrl: null,
-    keyGen: 1,
-    roomKey: b64url(crypto.getRandomValues(new Uint8Array(32))),
-    roster: [{ deviceId, role: "owner", addedAt: now }],
-    cursorIn: {},
-    nextAuthorSeq: 1,
-    clock: { ts: 0, counter: 0 },
-    migration: "promoted",
-    createdAt: now,
-  };
+    deviceId,
+    b64url(crypto.getRandomValues(new Uint8Array(32))),
+    now,
+  );
   const profile: Profile = { ...data, id: roomId };
   await db.transaction("rw", db.meta, db.profiles, async () => {
-    await db.meta.put({ key: `${META_KEYS.roomPrefix}${roomId}`, ...room });
+    await db.meta.put({ key: roomMetaKey(roomId), ...room });
     // Row tables carry the reducer-owned tombstone column; a live row says
     // so explicitly (audit R4-P2-1's absent-field trap).
     await db.table("profiles").put({ ...profile, deletedAt: null });

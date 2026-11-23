@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { X, Plus, Minus, Tag, Upload } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { renderableImageUrl } from "@/lib/media";
 import type { Item, ItemType, Condition } from "@/types/item";
 import { ITEM_TYPE_PRESETS, ITEM_TYPE_LABELS } from "@/types/item";
 
@@ -27,6 +28,9 @@ const PRESET_OPTIONS = ITEM_TYPE_PRESETS.map((v) => ({
 
 const CUSTOM_SENTINEL = "__custom__";
 
+/** Gate only — no hooks. The form below is keyed on the edit target, so
+ *  opening for a different item (or for "new") remounts it and every field
+ *  initialises from `editItem` instead of from a pre-fill effect. */
 export function AddItemDialog({
   open,
   locationName,
@@ -34,46 +38,46 @@ export function AddItemDialog({
   onClose,
   onSave,
 }: AddItemDialogProps) {
+  if (!open) return null;
+  return (
+    <AddItemForm
+      key={editItem?.id ?? "new"}
+      locationName={locationName}
+      editItem={editItem}
+      onClose={onClose}
+      onSave={onSave}
+    />
+  );
+}
+
+function AddItemForm({
+  locationName,
+  editItem,
+  onClose,
+  onSave,
+}: Omit<AddItemDialogProps, "open">) {
   const isEdit = !!editItem;
 
-  const [quantity, setQuantity] = useState(1);
-  const [condition, setCondition] = useState<Condition>(3);
-  const [itemType, setItemType] = useState<ItemType>("book");
-  const [customType, setCustomType] = useState("");
-  const [isCustomType, setIsCustomType] = useState(false);
-  const [category, setCategory] = useState("Uncategorized");
-  const [imageUrl, setImageUrl] = useState<string | undefined>();
+  const [quantity, setQuantity] = useState(editItem?.stock ?? 1);
+  const [condition, setCondition] = useState<Condition>(editItem?.condition ?? 3);
+  const [itemType, setItemType] = useState<ItemType>(() =>
+    editItem && !ITEM_TYPE_PRESETS.includes(editItem.itemType)
+      ? CUSTOM_SENTINEL
+      : (editItem?.itemType ?? "book"),
+  );
+  const [customType, setCustomType] = useState(() =>
+    editItem && !ITEM_TYPE_PRESETS.includes(editItem.itemType) ? editItem.itemType : "",
+  );
+  const [isCustomType, setIsCustomType] = useState(
+    () => !!editItem && !ITEM_TYPE_PRESETS.includes(editItem.itemType),
+  );
+  // Uncontrolled like the other text fields — `handleSave` reads it from the
+  // DOM, so it only needs an initial value.
+  const category = editItem?.category || "Uncategorized";
+  const [imageUrl, setImageUrl] = useState<string | undefined>(editItem?.imageUrl);
+  const previewSrc = renderableImageUrl(imageUrl);
 
   const customTypeInputRef = useRef<HTMLInputElement>(null);
-
-  /* Pre-fill when editing */
-  useEffect(() => {
-    if (editItem) {
-      setQuantity(editItem.stock);
-      setCondition(editItem.condition);
-      setCategory(editItem.category || "Uncategorized");
-      setImageUrl(editItem.imageUrl);
-
-      const isPreset = ITEM_TYPE_PRESETS.includes(editItem.itemType);
-      if (isPreset) {
-        setItemType(editItem.itemType);
-        setIsCustomType(false);
-        setCustomType("");
-      } else {
-        setItemType(CUSTOM_SENTINEL);
-        setIsCustomType(true);
-        setCustomType(editItem.itemType);
-      }
-    } else {
-      setQuantity(1);
-      setCondition(3);
-      setItemType("book");
-      setIsCustomType(false);
-      setCustomType("");
-      setCategory("Uncategorized");
-      setImageUrl(undefined);
-    }
-  }, [editItem, open]);
 
   /* Focus custom input when it appears */
   useEffect(() => {
@@ -143,8 +147,6 @@ export function AddItemDialog({
     onClose();
   };
 
-  if (!open) return null;
-
   return (
     <div
       className="dialog-backdrop"
@@ -190,9 +192,9 @@ export function AddItemDialog({
               style={{ display: "none" }}
               onChange={handleImageUpload}
             />
-            {imageUrl ? (
+            {previewSrc ? (
               <img
-                src={imageUrl}
+                src={previewSrc}
                 alt="Current item"
                 style={{ width: "100%", height: 120, objectFit: "cover", borderRadius: 8 }}
               />

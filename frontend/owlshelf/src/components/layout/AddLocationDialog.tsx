@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { X, MapPin } from "lucide-react";
 import type { Location, Profile } from "@/types/item";
 
@@ -13,6 +13,9 @@ interface AddLocationDialogProps {
   onDelete?: (id: string) => Promise<void>;
 }
 
+/** Gate only — no hooks. The form below is keyed on the edit target, so
+ *  opening for a different location (or for "new") remounts it and the
+ *  fields initialise from `editLocation` instead of from an effect. */
 export function AddLocationDialog({
   open,
   profile,
@@ -21,27 +24,33 @@ export function AddLocationDialog({
   onSave,
   onDelete,
 }: AddLocationDialogProps) {
+  if (!open) return null;
+  return (
+    <AddLocationForm
+      key={editLocation?.id ?? "new"}
+      profile={profile}
+      editLocation={editLocation}
+      onClose={onClose}
+      onSave={onSave}
+      onDelete={onDelete}
+    />
+  );
+}
+
+function AddLocationForm({
+  profile,
+  editLocation,
+  onClose,
+  onSave,
+  onDelete,
+}: Omit<AddLocationDialogProps, "open">) {
   const isEdit = !!editLocation;
 
-  const [name, setName] = useState("");
-  const [icon, setIcon] = useState("📁");
-  const [description, setDescription] = useState("");
+  const [name, setName] = useState(editLocation?.name ?? "");
+  const [icon, setIcon] = useState(editLocation?.icon ?? "📁");
+  const [description, setDescription] = useState(editLocation?.description ?? "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-
-  useEffect(() => {
-    if (editLocation) {
-      setName(editLocation.name);
-      setIcon(editLocation.icon);
-      setDescription(editLocation.description || "");
-    } else {
-      setName("");
-      setIcon("📁");
-      setDescription("");
-    }
-  }, [editLocation, open]);
-
-  if (!open) return null;
 
   const handleSave = async () => {
     if (!name.trim()) {

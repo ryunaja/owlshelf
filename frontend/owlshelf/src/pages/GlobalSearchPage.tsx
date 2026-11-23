@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { Search, X, ArrowLeft, Diamond, MapPin } from "lucide-react";
 import { itemsDB, locationsDB } from "@/lib/database";
+import { renderableImageUrl } from "@/lib/media";
 import type { Profile, Item, Location } from "@/types/item";
 import logoSrc from "@/assets/logo.png";
 
@@ -169,53 +170,56 @@ export function GlobalSearchPage({
               {results.length} result{results.length !== 1 ? "s" : ""} for &ldquo;{query}&rdquo;
             </p>
             <ul className="gsearch-results" role="list">
-              {results.map((item) => (
-                <li key={item.id}>
-                  <button
-                    className="gsearch-result-row"
-                    onClick={() => onNavigateToLocation(item.location)}
-                    id={`gsearch-result-${item.id}`}
-                  >
-                    {/* Thumbnail */}
-                    <div className="gsearch-thumb">
-                      {item.imageUrl ? (
-                        <img
-                          src={item.imageUrl}
-                          alt={item.name}
-                          className="gsearch-thumb-img"
-                          loading="lazy"
-                        />
-                      ) : (
-                        <div className="gsearch-thumb-placeholder">
-                          <Diamond size={18} strokeWidth={1} />
-                        </div>
-                      )}
-                    </div>
+              {results.map((item) => {
+                const imageSrc = renderableImageUrl(item.imageUrl);
+                return (
+                  <li key={item.id}>
+                    <button
+                      className="gsearch-result-row"
+                      onClick={() => onNavigateToLocation(item.location)}
+                      id={`gsearch-result-${item.id}`}
+                    >
+                      {/* Thumbnail */}
+                      <div className="gsearch-thumb">
+                        {imageSrc ? (
+                          <img
+                            src={imageSrc}
+                            alt={item.name}
+                            className="gsearch-thumb-img"
+                            loading="lazy"
+                          />
+                        ) : (
+                          <div className="gsearch-thumb-placeholder">
+                            <Diamond size={18} strokeWidth={1} />
+                          </div>
+                        )}
+                      </div>
 
-                    {/* Info */}
-                    <div className="gsearch-result-info">
-                      <span className="gsearch-result-name">{item.name}</span>
-                      {item.subtitle && (
-                        <span className="gsearch-result-subtitle">
-                          {item.subtitle}
+                      {/* Info */}
+                      <div className="gsearch-result-info">
+                        <span className="gsearch-result-name">{item.name}</span>
+                        {item.subtitle && (
+                          <span className="gsearch-result-subtitle">
+                            {item.subtitle}
+                          </span>
+                        )}
+                        <span className="gsearch-result-loc">
+                          <MapPin size={11} strokeWidth={2} />
+                          {item.locationIcon} {item.locationName}
                         </span>
-                      )}
-                      <span className="gsearch-result-loc">
-                        <MapPin size={11} strokeWidth={2} />
-                        {item.locationIcon} {item.locationName}
-                      </span>
-                    </div>
+                      </div>
 
-                    {/* Tags + stock */}
-                    <div className="gsearch-result-meta">
-                      {item.tags[0] && (
-                        <span className="gsearch-tag-pill">{item.tags[0]}</span>
-                      )}
-                      <span className="gsearch-stock-badge">×{item.stock}</span>
-                    </div>
-                  </button>
-                </li>
-              ))}
+                      {/* Tags + stock */}
+                      <div className="gsearch-result-meta">
+                        {item.tags[0] && (
+                          <span className="gsearch-tag-pill">{item.tags[0]}</span>
+                        )}
+                        <span className="gsearch-stock-badge">×{item.stock}</span>
+                      </div>
+                    </button>
+                  </li>
+                );
+              })}
             </ul>
           </div>
         )}

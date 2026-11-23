@@ -1,4 +1,5 @@
 import { X, Diamond } from "lucide-react";
+import { renderableImageUrl } from "@/lib/media";
 import type { Item } from "@/types/item";
 import { ITEM_TYPE_LABELS } from "@/types/item";
 
@@ -32,6 +33,8 @@ export function ItemDetailDialog({
 }: ItemDetailDialogProps) {
   if (!item) return null;
 
+  const imageSrc = renderableImageUrl(item.imageUrl);
+
   return (
     <div
       className="dialog-backdrop"
@@ -46,9 +49,9 @@ export function ItemDetailDialog({
       >
         {/* Image */}
         <div className="detail-image-wrap">
-          {item.imageUrl ? (
+          {imageSrc ? (
             <img
-              src={item.imageUrl}
+              src={imageSrc}
               alt={item.name}
               className="detail-image"
             />

@@ -128,6 +128,10 @@ export interface QuarantineEntry {
   opId: string | null;
   reason: "bad-type" | "bad-seq" | "bad-stamp" | "cross-room" | "fork";
   receivedAt: number;
+  /** Fork only: the slot holds TWO different opIds, and the store's compound
+   *  primary key allows one record per slot — so both are named here rather
+   *  than silently keeping one (plan §6.4: "quarantine BOTH ops"). */
+  opIds?: string[];
 }
 
 export interface FileRow {
@@ -198,6 +202,9 @@ export interface Room {
    *  room's mints on one meta record, and the mint transaction loads the room
    *  anyway (§6.2–§6.3). Baseline ops stamp it at promote. */
   clock: { ts: number; counter: number };
+  /** Set when a same-seq/different-opId fork is detected (§6.4/R4-P0-3).
+   *  Surfaces in sync status as `attention` (§15.14). */
+  forked?: boolean;
   migration: "running" | "promoted";
   createdAt: number;
 }
