@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Diamond, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { renderableImageUrl } from "@/lib/media";
+import { useMediaSrc } from "@/lib/hooks";
 import type { Item } from "@/types/item";
 
 interface ItemCardProps {
@@ -26,7 +27,8 @@ function ConditionDots({ value }: { value: number }) {
 
 export function ItemCard({ item, onClick, onEdit, onDelete }: ItemCardProps) {
   const [menuOpen, setMenuOpen] = useState(false);
-  const imageSrc = renderableImageUrl(item.imageUrl);
+  const media = useMediaSrc(item.imageUrl, item.profileId);
+  const imageSrc = media.status === "ready" ? renderableImageUrl(media.url) : undefined;
 
   const conditionLabel = [
     "",

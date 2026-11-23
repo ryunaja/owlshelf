@@ -1,5 +1,6 @@
 import { X, Diamond } from "lucide-react";
 import { renderableImageUrl } from "@/lib/media";
+import { useMediaSrc } from "@/lib/hooks";
 import type { Item } from "@/types/item";
 import { ITEM_TYPE_LABELS } from "@/types/item";
 
@@ -31,9 +32,11 @@ export function ItemDetailDialog({
   onClose,
   onEdit,
 }: ItemDetailDialogProps) {
+  // The hook runs before the early return: hooks cannot be conditional.
+  const media = useMediaSrc(item?.imageUrl, item?.profileId ?? "");
   if (!item) return null;
 
-  const imageSrc = renderableImageUrl(item.imageUrl);
+  const imageSrc = media.status === "ready" ? renderableImageUrl(media.url) : undefined;
 
   return (
     <div

@@ -2,6 +2,8 @@ import { useState, useEffect, useRef } from "react";
 import { X, Plus, Minus, Tag, Upload } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { renderableImageUrl } from "@/lib/media";
+import { captureImage, type CapturedImage } from "@/lib/capture";
+import { useMediaSrc, type NewItemData } from "@/lib/hooks";
 import type { Item, ItemType, Condition } from "@/types/item";
 import { ITEM_TYPE_PRESETS, ITEM_TYPE_LABELS } from "@/types/item";
 
@@ -10,7 +12,9 @@ interface AddItemDialogProps {
   locationName: string;
   editItem?: Item | null; // if provided → edit mode
   onClose: () => void;
-  onSave?: (itemData: Partial<Item>) => void;
+  /** Awaited: the dialog closes only after the commit acks, and stays open
+   *  with the user's input when it rejects (audit 4.1.6). */
+  onSave?: (itemData: NewItemData) => Promise<void>;
 }
 
 const CONDITIONS: { value: Condition; label: string }[] = [
@@ -74,8 +78,19 @@ function AddItemForm({
   // Uncontrolled like the other text fields — `handleSave` reads it from the
   // DOM, so it only needs an initial value.
   const category = editItem?.category || "Uncategorized";
-  const [imageUrl, setImageUrl] = useState<string | undefined>(editItem?.imageUrl);
-  const previewSrc = renderableImageUrl(imageUrl);
+
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [imageError, setImageError] = useState("");
+  /** A freshly captured image: the compressed bytes plus a preview URL. The
+   *  bytes go to `files` on save; the preview is revoked when replaced. */
+  const [captured, setCaptured] = useState<{ image: CapturedImage; preview: string } | null>(null);
+
+  // The row's existing reference (an `idb://` one needs resolving).
+  const existing = useMediaSrc(editItem?.imageUrl, editItem?.profileId ?? "");
+  const previewSrc = renderableImageUrl(
+    captured?.preview ?? (existing.status === "ready" ? existing.url : undefined),
+  );
 
   const customTypeInputRef = useRef<HTMLInputElement>(null);
 
@@ -86,14 +101,22 @@ function AddItemForm({
     }
   }, [isCustomType]);
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  /* Revoke the previous preview when it is replaced, and on unmount. */
+  useEffect(() => {
+    if (!captured) return;
+    return () => URL.revokeObjectURL(captured.preview);
+  }, [captured]);
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      setImageUrl(event.target?.result as string);
-    };
-    reader.readAsDataURL(file);
+    setImageError("");
+    try {
+      const image = await captureImage(file);
+      setCaptured({ image, preview: URL.createObjectURL(file) });
+    } catch (err) {
+      setImageError(err instanceof Error ? err.message : "That image could not be used.");
+    }
   };
 
   const handleTypeSelectChange = (val: string) => {
@@ -118,7 +141,7 @@ function AddItemForm({
     ? customType.trim() || "other"
     : itemType;
 
-  const handleSave = () => {
+  const handleSave = async () => {
     const nameInput = document.getElementById("field-name") as HTMLInputElement;
     const subtitleInput = document.getElementById("field-subtitle") as HTMLInputElement;
     const tagsInput = document.getElementById("field-tags") as HTMLInputElement;
@@ -131,8 +154,10 @@ function AddItemForm({
     const cat = categoryInput?.value || "Uncategorized";
     const description = descInput?.value || "";
 
-    if (onSave) {
-      onSave({
+    setSaving(true);
+    setError("");
+    try {
+      await onSave?.({
         name,
         subtitle,
         itemType: resolvedItemType,
@@ -141,10 +166,18 @@ function AddItemForm({
         tags,
         condition,
         description,
-        imageUrl,
+        image: captured?.image,
+        imageUrl: captured ? undefined : editItem?.imageUrl,
       });
+      onClose();
+    } catch (e) {
+      // Keep the dialog open with the user's input: a quota, compression or
+      // IndexedDB failure must never discard what they typed (audit 4.1.6).
+      console.error("[owlshelf] save item failed", e);
+      setError(e instanceof Error ? e.message : "Failed to save. Please try again.");
+    } finally {
+      setSaving(false);
     }
-    onClose();
   };
 
   return (
@@ -206,6 +239,7 @@ function AddItemForm({
               </>
             )}
           </label>
+          {imageError && <p className="field-error">{imageError}</p>}
 
           <div className="dialog-fields">
             {/* Item name */}
@@ -371,12 +405,17 @@ function AddItemForm({
 
         {/* Footer */}
         <div className="dialog-footer">
-          <button id="dialog-cancel" className="btn-ghost" onClick={onClose}>
+          {error && (
+            <p className="field-error" style={{ marginRight: "auto" }}>
+              {error}
+            </p>
+          )}
+          <button id="dialog-cancel" className="btn-ghost" onClick={onClose} disabled={saving}>
             Cancel
           </button>
-          <button id="dialog-save" className="btn-primary" onClick={handleSave}>
+          <button id="dialog-save" className="btn-primary" onClick={handleSave} disabled={saving}>
             <Plus size={15} strokeWidth={2.2} />
-            {isEdit ? "Save Changes" : "Add Item"}
+            {saving ? "Saving…" : isEdit ? "Save Changes" : "Add Item"}
           </button>
         </div>
       </div>

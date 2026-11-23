@@ -29,6 +29,7 @@
 
 import type { OwlshelfDB } from "./db";
 import { getDeviceId } from "./db";
+import { sha256Hex } from "./hash";
 import {
   META_KEYS,
   type MigrationProgress,
@@ -73,11 +74,6 @@ function b64url(bytes: Uint8Array): string {
   let s = "";
   for (const b of bytes) s += String.fromCharCode(b);
   return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-async function sha256Hex(bytes: Uint8Array<ArrayBuffer>): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", bytes);
-  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 function decodeDataUrl(url: string): { bytes: Uint8Array<ArrayBuffer>; contentType: string } | null {

@@ -25,7 +25,6 @@ export const mockLocations: Location[] = [
     name: "Home Shelf",
     icon: "🏠",
     description: "Physical books and collectibles at home",
-    itemCount: 4,
   },
   {
     id: "loc-ebook",
@@ -33,7 +32,6 @@ export const mockLocations: Location[] = [
     name: "E-Books",
     icon: "📱",
     description: "Digital reading library",
-    itemCount: 2,
   },
   {
     id: "loc-storage",
@@ -41,7 +39,6 @@ export const mockLocations: Location[] = [
     name: "Storage Box",
     icon: "📦",
     description: "Archived items in storage",
-    itemCount: 1,
   },
 
   // Business locations
@@ -51,7 +48,6 @@ export const mockLocations: Location[] = [
     name: "Warehouse A",
     icon: "🏭",
     description: "Main product warehouse",
-    itemCount: 3,
   },
   {
     id: "loc-storefront",
@@ -59,7 +55,6 @@ export const mockLocations: Location[] = [
     name: "Store Front",
     icon: "🏬",
     description: "Display stock on the floor",
-    itemCount: 2,
   },
   {
     id: "loc-office",
@@ -67,7 +62,6 @@ export const mockLocations: Location[] = [
     name: "Office Supplies",
     icon: "🖥️",
     description: "Internal office equipment",
-    itemCount: 1,
   },
 ];
 
@@ -76,6 +70,7 @@ export const mockItems: Item[] = [
   // Home Shelf — books
   {
     id: "p1",
+    profileId: "profile-personal",
     locationId: "loc-home-shelf",
     name: "Dune",
     subtitle: "Frank Herbert · 1965",
@@ -90,6 +85,7 @@ export const mockItems: Item[] = [
   },
   {
     id: "p2",
+    profileId: "profile-personal",
     locationId: "loc-home-shelf",
     name: "The Design of Everyday Things",
     subtitle: "Don Norman · 1988",
@@ -103,6 +99,7 @@ export const mockItems: Item[] = [
   },
   {
     id: "p3",
+    profileId: "profile-personal",
     locationId: "loc-home-shelf",
     name: "Vintage World Map",
     subtitle: "Antique Print · c. 1890",
@@ -116,6 +113,7 @@ export const mockItems: Item[] = [
   },
   {
     id: "p4",
+    profileId: "profile-personal",
     locationId: "loc-home-shelf",
     name: "Sapiens",
     subtitle: "Yuval Noah Harari · 2011",
@@ -131,6 +129,7 @@ export const mockItems: Item[] = [
   // E-Books
   {
     id: "p5",
+    profileId: "profile-personal",
     locationId: "loc-ebook",
     name: "Project Hail Mary",
     subtitle: "Andy Weir · 2021",
@@ -144,6 +143,7 @@ export const mockItems: Item[] = [
   },
   {
     id: "p6",
+    profileId: "profile-personal",
     locationId: "loc-ebook",
     name: "Atomic Habits",
     subtitle: "James Clear · 2018",
@@ -159,6 +159,7 @@ export const mockItems: Item[] = [
   // Storage
   {
     id: "p7",
+    profileId: "profile-personal",
     locationId: "loc-storage",
     name: "The Name of the Wind",
     subtitle: "Patrick Rothfuss · 2007",
@@ -174,6 +175,7 @@ export const mockItems: Item[] = [
   // Warehouse A
   {
     id: "b1",
+    profileId: "profile-business",
     locationId: "loc-warehouse",
     name: "Wireless Mechanical Keyboard",
     subtitle: "Keychron · K8 Pro",
@@ -187,6 +189,7 @@ export const mockItems: Item[] = [
   },
   {
     id: "b2",
+    profileId: "profile-business",
     locationId: "loc-warehouse",
     name: "USB-C Hub 7-in-1",
     subtitle: "Anker · PowerExpand",
@@ -200,6 +203,7 @@ export const mockItems: Item[] = [
   },
   {
     id: "b3",
+    profileId: "profile-business",
     locationId: "loc-warehouse",
     name: "Standing Desk Mat",
     subtitle: "Topo · Anti-Fatigue",
@@ -215,6 +219,7 @@ export const mockItems: Item[] = [
   // Store Front
   {
     id: "b4",
+    profileId: "profile-business",
     locationId: "loc-storefront",
     name: "Monitor Arm Dual",
     subtitle: "Ergotron · LX Series",
@@ -228,6 +233,7 @@ export const mockItems: Item[] = [
   },
   {
     id: "b5",
+    profileId: "profile-business",
     locationId: "loc-storefront",
     name: "Noise-Cancelling Headphones",
     subtitle: "Sony · WH-1000XM5",
@@ -243,6 +249,7 @@ export const mockItems: Item[] = [
   // Office
   {
     id: "b6",
+    profileId: "profile-business",
     locationId: "loc-office",
     name: "Ergonomic Office Chair",
     subtitle: "Herman Miller · Aeron",

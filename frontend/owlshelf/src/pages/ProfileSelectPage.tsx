@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Plus } from "lucide-react";
-import { useProfiles } from "@/lib/useDB";
+import { useProfiles } from "@/lib/hooks";
 import type { Profile } from "@/types/item";
 import { cn } from "@/lib/utils";
 import logoImg from "@/assets/logo.png";
@@ -160,7 +160,7 @@ export function ProfileSelectPage({ onSelect }: ProfileSelectPageProps) {
                 wordBreak: "break-word",
               }}
             >
-              {error}
+              {error.message}
             </p>
             <button
               id="btn-retry-open"

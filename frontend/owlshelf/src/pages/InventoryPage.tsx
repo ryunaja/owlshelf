@@ -5,7 +5,7 @@ import { ItemGrid } from "@/components/items/ItemGrid";
 import { SearchBar } from "@/components/items/SearchBar";
 import { AddItemDialog } from "@/components/items/AddItemDialog";
 import { ItemDetailDialog } from "@/components/items/ItemDetailDialog";
-import { useItems } from "@/lib/useDB";
+import { useItems, type NewItemData } from "@/lib/hooks";
 import type { Profile, Location, Item, ItemType } from "@/types/item";
 
 interface InventoryPageProps {
@@ -78,23 +78,24 @@ export function InventoryPage({ profile, location, onBack, onOpenSearch }: Inven
     setEditingItem(null);
   };
 
-  const handleSaveItem = async (itemData: Partial<Item>) => {
+  const handleSaveItem = async (itemData: NewItemData) => {
     if (editingItem) {
-      const updated = { ...editingItem, ...itemData } as Item;
-      await updateItem(updated);
+      const updated: Item = {
+        ...editingItem,
+        name: itemData.name,
+        subtitle: itemData.subtitle ?? "",
+        description: itemData.description ?? "",
+        stock: itemData.stock ?? editingItem.stock,
+        tags: itemData.tags ?? editingItem.tags,
+        category: itemData.category ?? editingItem.category,
+        itemType: itemData.itemType ?? editingItem.itemType,
+        condition: itemData.condition ?? editingItem.condition,
+        imageUrl: itemData.imageUrl ?? editingItem.imageUrl,
+      };
+      await updateItem(updated, itemData.image);
       if (detailItem?.id === updated.id) setDetailItem(updated);
     } else {
-      await addItem(location.id, {
-        name:        itemData.name        ?? "Untitled",
-        subtitle:    itemData.subtitle    ?? "",
-        description: itemData.description ?? "",
-        stock:       itemData.stock,
-        tags:        itemData.tags,
-        category:    itemData.category,
-        itemType:    itemData.itemType,
-        condition:   itemData.condition,
-        imageUrl:    itemData.imageUrl,
-      });
+      await addItem(location.id, itemData);
     }
   };
 

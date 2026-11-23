@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Plus, Pencil, Search } from "lucide-react";
-import { useLocations } from "@/lib/useDB";
+import { useLocations } from "@/lib/hooks";
 import { AddLocationDialog } from "@/components/layout/AddLocationDialog";
 import type { Profile, Location } from "@/types/item";
 import logoSrc from "@/assets/logo.png";
@@ -28,7 +28,7 @@ export function LocationSelectPage({
     setAddDialogOpen(true);
   };
 
-  const handleSaveLocation = async (data: Omit<Location, "id" | "itemCount">) => {
+  const handleSaveLocation = async (data: Omit<Location, "id">) => {
     if (editingLocation) {
       await updateLocation({ ...editingLocation, ...data });
     } else {

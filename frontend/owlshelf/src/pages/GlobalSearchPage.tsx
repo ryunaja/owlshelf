@@ -1,20 +1,28 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { Search, X, ArrowLeft, Diamond, MapPin } from "lucide-react";
-import { itemsDB, locationsDB } from "@/lib/database";
+import { useSearch, useMediaSrc, type SearchResult } from "@/lib/hooks";
 import { renderableImageUrl } from "@/lib/media";
-import type { Profile, Item, Location } from "@/types/item";
+import type { Profile, Location } from "@/types/item";
 import logoSrc from "@/assets/logo.png";
+
+/** A thumbnail needs its own component: `useMediaSrc` is a hook, and the
+ *  results are rendered from a `.map()`. */
+function SearchThumb({ item }: { item: SearchResult }) {
+  const media = useMediaSrc(item.imageUrl, item.profileId);
+  const src = media.status === "ready" ? renderableImageUrl(media.url) : undefined;
+  return src ? (
+    <img src={src} alt={item.name} className="gsearch-thumb-img" loading="lazy" />
+  ) : (
+    <div className="gsearch-thumb-placeholder">
+      <Diamond size={18} strokeWidth={1} />
+    </div>
+  );
+}
 
 interface GlobalSearchPageProps {
   profile: Profile;
   onBack: () => void;
   onNavigateToLocation: (location: Location) => void;
-}
-
-interface EnrichedItem extends Item {
-  locationName: string;
-  locationIcon: string;
-  location: Location;
 }
 
 export function GlobalSearchPage({
@@ -23,44 +31,8 @@ export function GlobalSearchPage({
   onNavigateToLocation,
 }: GlobalSearchPageProps) {
   const [query, setQuery] = useState("");
-  const [allItems, setAllItems] = useState<EnrichedItem[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { items: allItems, loading } = useSearch(profile.id);
   const inputRef = useRef<HTMLInputElement>(null);
-
-  // Load all items for this profile and enrich them with location data
-  useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      setLoading(true);
-      try {
-        const locations = await locationsDB.getByProfile(profile.id);
-        const locationMap = new Map<string, Location>(
-          locations.map((l) => [l.id, l])
-        );
-
-        const items = await itemsDB.getAll();
-        const profileItems = items.filter((i) =>
-          locationMap.has(i.locationId)
-        );
-
-        const enriched: EnrichedItem[] = profileItems.map((item) => {
-          const loc = locationMap.get(item.locationId)!;
-          return {
-            ...item,
-            locationName: loc.name,
-            locationIcon: loc.icon,
-            location: loc,
-          };
-        });
-
-        if (!cancelled) setAllItems(enriched);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-    load();
-    return () => { cancelled = true; };
-  }, [profile.id]);
 
   // Auto-focus search input
   useEffect(() => {
@@ -171,7 +143,6 @@ export function GlobalSearchPage({
             </p>
             <ul className="gsearch-results" role="list">
               {results.map((item) => {
-                const imageSrc = renderableImageUrl(item.imageUrl);
                 return (
                   <li key={item.id}>
                     <button
@@ -181,18 +152,7 @@ export function GlobalSearchPage({
                     >
                       {/* Thumbnail */}
                       <div className="gsearch-thumb">
-                        {imageSrc ? (
-                          <img
-                            src={imageSrc}
-                            alt={item.name}
-                            className="gsearch-thumb-img"
-                            loading="lazy"
-                          />
-                        ) : (
-                          <div className="gsearch-thumb-placeholder">
-                            <Diamond size={18} strokeWidth={1} />
-                          </div>
-                        )}
+                        <SearchThumb item={item} />
                       </div>
 
                       {/* Info */}

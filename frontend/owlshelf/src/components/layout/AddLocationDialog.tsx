@@ -9,7 +9,7 @@ interface AddLocationDialogProps {
   profile: Profile;
   editLocation?: Location | null;
   onClose: () => void;
-  onSave: (data: Omit<Location, "id" | "itemCount">) => Promise<Location | void>;
+  onSave: (data: Omit<Location, "id">) => Promise<Location | void>;
   onDelete?: (id: string) => Promise<void>;
 }
 

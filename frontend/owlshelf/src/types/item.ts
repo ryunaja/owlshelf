@@ -18,11 +18,20 @@ export interface Location {
   name: string;
   icon: string; // emoji
   description: string;
+}
+
+/** A location plus its count, DERIVED from live visible items (audit 4.2.6).
+ *  Never stored: a denormalized counter is a lost-update window and a remote
+ *  recount drift for nothing. `useLocations` attaches it. */
+export interface LocationWithCount extends Location {
   itemCount: number;
 }
 
 export interface Item {
   id: string;
+  /** The owning room. Required: a row minted without it broke the
+   *  room-scoped identity check on the second op (audit-2 N13). */
+  profileId: string;
   locationId: string;
   name: string;
   subtitle: string;
