@@ -47,9 +47,13 @@ export function AddProfileDialog({ open, onClose, onSave }: AddProfileDialogProp
       });
       // Success — the parent (useProfiles) has already added the card.
       onClose();
-    } catch {
+    } catch (e) {
       // Failure — keep the dialog open with the user's input so they
       // can retry without retyping (same contract as AddLocationDialog).
+      // The console keeps the real cause: a rejected ensureOpen (migration)
+      // and a failed write both land here, and the generic message alone
+      // cannot tell them apart.
+      console.error("[owlshelf] create profile failed", e);
       setError("Failed to create profile. Please try again.");
     } finally {
       setSaving(false);

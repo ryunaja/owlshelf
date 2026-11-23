@@ -27,6 +27,9 @@ interface UseProfilesResult {
   loading: boolean;
   error: string | null;
   addProfile: (data: Omit<Profile, "id">) => Promise<void>;
+  /** Re-runs the read, and therefore `ensureOpen`: the migration promise
+   *  resets on failure, so this is the retry path after a failed open. */
+  reload: () => Promise<void>;
 }
 
 export function useProfiles(): UseProfilesResult {
@@ -37,6 +40,7 @@ export function useProfiles(): UseProfilesResult {
   const load = useCallback(async () => {
     try {
       setLoading(true);
+      setError(null);
       setProfiles(await profilesDB.getAll());
     } catch (e) {
       setError(String(e));
@@ -48,12 +52,13 @@ export function useProfiles(): UseProfilesResult {
   useEffect(() => { load(); }, [load]);
 
   const addProfile = useCallback(async (data: Omit<Profile, "id">) => {
-    const profile: Profile = { id: `profile-${nanoid()}`, ...data };
-    await profilesDB.put(profile);
+    // The facade mints the room and the profile row in one transaction
+    // (profile.id === roomId, plan §6.7) — never a roomless profile.
+    const profile = await profilesDB.create(data);
     setProfiles((prev) => [...prev, profile]);
   }, []);
 
-  return { profiles, loading, error, addProfile };
+  return { profiles, loading, error, addProfile, reload: load };
 }
 
 // ─── useLocations ─────────────────────────────────────────────────────────

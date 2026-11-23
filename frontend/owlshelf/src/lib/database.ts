@@ -1,131 +1,96 @@
 /**
- * owlshelf-db  –  IndexedDB service layer
+ * owlshelf-db  –  Dexie-backed service layer (the facade).
  *
- * Object stores
+ * Object stores (schema of record: lib/stores.ts)
  *   profiles   keyPath=id
  *   locations  keyPath=id  index: profileId
- *   items      keyPath=id  index: locationId
+ *   items      keyPath=id  index: locationId, profileId
+ *   + v2 sync stores: ops, outbox, pending, quarantine, migrateStaging,
+ *     files, meta  (plan §6.1; the op engine wires up in step 3)
  *
  * Version history
- *   1 – initial schema + seed data (dev builds only; prod installs start empty)
+ *   1 – raw IndexedDB schema + dev seed (the pre-Dexie bundle)
+ *   2 – Dexie adoption: sync stores added; legacy rows are re-ided and
+ *       promoted by the resumable task in lib/migrate.ts
+ *
+ * The exported shapes are UNCHANGED from the raw layer (plan §2 step 2:
+ * "preserve facade/hook contracts") — useDB.ts and every page keep their
+ * exact destructure targets. Live queries and the command path arrive
+ * with the worker (step 3); until then tabs read/write through this
+ * facade, which serializes on the migration so no read ever observes the
+ * staged-promote duplicates (or the pre-promote double view at all).
  */
 
-import type { Profile, Location, Item } from "@/types/item";
-import { mockProfiles, mockLocations, mockItems } from "@/data/mockItems";
+import type { Profile, Location, Item } from "../types/item";
+import { db, ensureOpen, createProfile } from "./db";
+import type { RowTable } from "./stores";
 
-const DB_NAME = "owlshelf-db";
-const DB_VERSION = 1;
-
-// ─── Singleton promise ─────────────────────────────────────────────────────
-
-let _dbPromise: Promise<IDBDatabase> | null = null;
-
-export function openDB(): Promise<IDBDatabase> {
-  if (_dbPromise) return _dbPromise;
-
-  _dbPromise = new Promise<IDBDatabase>((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, DB_VERSION);
-
-    req.onerror = () => {
-      _dbPromise = null; // allow retry
-      reject(req.error);
-    };
-
-    req.onsuccess = () => resolve(req.result);
-
-    // Runs only on first install (v1) or when DB_VERSION is bumped
-    req.onupgradeneeded = (event) => {
-      const db = (event.target as IDBOpenDBRequest).result;
-      // The implicit upgrade transaction — we MUST use this one
-      const upgradeTx = (event.target as IDBOpenDBRequest).transaction!;
-
-      // ── Create stores ──────────────────────────────────────────────────
-      if (!db.objectStoreNames.contains("profiles")) {
-        db.createObjectStore("profiles", { keyPath: "id" });
-      }
-
-      if (!db.objectStoreNames.contains("locations")) {
-        const locStore = db.createObjectStore("locations", { keyPath: "id" });
-        locStore.createIndex("profileId", "profileId", { unique: false });
-      }
-
-      if (!db.objectStoreNames.contains("items")) {
-        const itemStore = db.createObjectStore("items", { keyPath: "id" });
-        itemStore.createIndex("locationId", "locationId", { unique: false });
-      }
-
-      // ── Seed on first install (version 1 only, dev builds only) ────────
-      // Demo data must never land on a real user's shelf (sync plan §6.1
-      // rule 10). `vite build` replaces import.meta.env.DEV with `false`,
-      // so production first-installs start empty and land on the
-      // create-profile empty state. Dev servers keep the seed for local
-      // development, and existing installs (oldVersion > 0) are never
-      // touched by this gate — their demo rows are removed later by the
-      // v2 migration, not here.
-      if (event.oldVersion === 0 && import.meta.env.DEV) {
-        const profileStore  = upgradeTx.objectStore("profiles");
-        const locationStore = upgradeTx.objectStore("locations");
-        const itemStore     = upgradeTx.objectStore("items");
-
-        mockProfiles.forEach((p) => profileStore.put(p));
-        mockLocations.forEach((l) => locationStore.put(l));
-        mockItems.forEach((i) => itemStore.put(i));
-      }
-    };
-  });
-
-  return _dbPromise;
+/** Kept for contract compatibility with the raw layer. Returns the open
+ *  Dexie instance once open + migration have settled. */
+export async function openDB(): Promise<typeof db> {
+  await ensureOpen();
+  return db;
 }
 
 // ─── Generic async wrappers ────────────────────────────────────────────────
 
-function idbRequest<T>(req: IDBRequest<T>): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    req.onsuccess = () => resolve(req.result);
-    req.onerror  = () => reject(req.error);
-  });
-}
-
 export async function dbGet<T>(storeName: string, id: string): Promise<T | undefined> {
-  const db = await openDB();
-  const tx = db.transaction(storeName, "readonly");
-  return idbRequest<T | undefined>(tx.objectStore(storeName).get(id));
+  await ensureOpen();
+  return db.table(storeName).get(id) as Promise<T | undefined>;
 }
 
 export async function dbGetAll<T>(storeName: string): Promise<T[]> {
-  const db = await openDB();
-  const tx = db.transaction(storeName, "readonly");
-  return idbRequest<T[]>(tx.objectStore(storeName).getAll());
+  await ensureOpen();
+  return db.table(storeName).toArray() as Promise<T[]>;
 }
 
+/** `dbGetByIndex` is read-path only; indexes are validated by the Dexie
+ *  schema at open time (the schema IS the artifact, lib/stores.ts). */
 export async function dbGetByIndex<T>(
   storeName: string,
   indexName: string,
   value: string
 ): Promise<T[]> {
-  const db = await openDB();
-  const tx = db.transaction(storeName, "readonly");
-  const index = tx.objectStore(storeName).index(indexName);
-  return idbRequest<T[]>(index.getAll(value));
+  await ensureOpen();
+  return db
+    .table(storeName)
+    .where(indexName)
+    .equals(value)
+    .toArray() as Promise<T[]>;
 }
 
+/** Row-table writes stamp the reducer-owned sync columns the step-3 engine
+ *  expects: a session-local write is live (`deletedAt: null`), avoiding
+ *  the absent-field trap of audit R4-P2-1, and carries no winner yet —
+ *  baseline winners are the migration's, op minting is the worker's. */
 export async function dbPut<T>(storeName: string, record: T): Promise<void> {
-  const db = await openDB();
-  const tx = db.transaction(storeName, "readwrite");
-  await idbRequest(tx.objectStore(storeName).put(record));
+  await ensureOpen();
+  await db.transaction("rw", db.table(storeName), async () => {
+    if (isRowTable(storeName) && (record as Record<string, unknown>).deletedAt === undefined) {
+      await db.table(storeName).put({ ...record, deletedAt: null });
+    } else {
+      await db.table(storeName).put(record);
+    }
+  });
 }
 
 export async function dbDelete(storeName: string, id: string): Promise<void> {
-  const db = await openDB();
-  const tx = db.transaction(storeName, "readwrite");
-  await idbRequest(tx.objectStore(storeName).delete(id));
+  await ensureOpen();
+  await db.table(storeName).delete(id);
+}
+
+function isRowTable(name: string): name is RowTable {
+  return name === "profiles" || name === "locations" || name === "items";
 }
 
 // ─── Typed store objects ───────────────────────────────────────────────────
 
 export const profilesDB = {
   getAll:    ()            => dbGetAll<Profile>("profiles"),
-  put:       (p: Profile)  => dbPut("profiles", p),
+  put:       (p: Profile) => dbPut("profiles", p),
+  /** §6.7 create: mints the room and the profile row together, so a new
+   *  profile is never a roomless row (profile.id === roomId). */
+  create:    (data: Omit<Profile, "id">) => createProfile(data),
 };
 
 export const locationsDB = {
@@ -143,3 +108,5 @@ export const itemsDB = {
   put:          (i: Item)            => dbPut("items", i),
   delete:       (id: string)         => dbDelete("items", id),
 };
+
+export { db };
