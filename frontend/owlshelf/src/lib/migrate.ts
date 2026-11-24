@@ -29,7 +29,10 @@
 
 import type { OwlshelfDB } from "./db";
 import { getDeviceId } from "./db";
+import { getDeviceKeys } from "./keys";
+import { mintEpoch } from "./roster";
 import { sha256Hex } from "./hash";
+import { mockItems, mockLocations, mockProfiles } from "../data/mockItems";
 import {
   META_KEYS,
   type MigrationProgress,
@@ -41,6 +44,10 @@ import {
 } from "./stores";
 
 const CHUNK_SIZE = 1;
+
+/** §6.1 rule 10: the idmap value for a demo row that was removed instead of
+ *  migrated. A sentinel, not an id — nothing may ever resolve it to a row. */
+export const SEED_REMOVED = "SEED_REMOVED";
 
 // ─── smoke seam ─────────────────────────────────────────────────────────────
 
@@ -222,14 +229,133 @@ async function putStaged(
   noteStagedRow();
 }
 
+// ─── seed removal (§6.1 rule 10, owner decision 2026-11-20) ────────────────
+
+/** Arrays compare by value; everything else by identity. Seed fields are
+ *  primitives and string arrays, so this is enough and stays honest. */
+function sameSeedValue(a: unknown, b: unknown): boolean {
+  if (Array.isArray(a) || Array.isArray(b)) return JSON.stringify(a) === JSON.stringify(b);
+  return Object.is(a, b);
+}
+
+/** True when every field the seed defines still holds its seed value.
+ *
+ *  Extra fields on the legacy row are IGNORED on purpose: v1 denormalized
+ *  `itemCount` onto locations, and that counter is being deleted anyway
+ *  (§6.5 delta 4), so counting it as an edit would keep every seed location
+ *  forever. */
+function matchesSeed(row: Record<string, unknown>, seed: Record<string, unknown>): boolean {
+  for (const [key, value] of Object.entries(seed)) {
+    if (key === "id") continue; // the id is the join key, already matched
+    if (!sameSeedValue(row[key], value)) return false;
+  }
+  return true;
+}
+
+interface SeedRemovals {
+  profiles: Set<string>;
+  locations: Set<string>;
+  items: Set<string>;
+}
+
+/**
+ * Which legacy rows are UNTOUCHED demo data, and therefore removed rather
+ * than migrated.
+ *
+ * **Bottom-up on purpose.** A seed profile is removable only when every
+ * location under it is removable, and a location only when every item under
+ * it is. Removing a parent whose child the user edited would orphan that
+ * child — the row would survive with a `profileId` pointing at nothing. The
+ * consequence is exactly the rule the plan asks for: editing ONE item keeps
+ * its location and its profile, so the edit survives with its context.
+ *
+ * **Matching is by seed id AND content.** Ids alone would be unsafe in one
+ * direction (a user row that happens to look like a seed); content alone would
+ * be unsafe in the other (a user who typed "Dune" into a row of their own).
+ * The seed ids are deterministic (`profile-personal`, `loc-ebook`, `p1`…), so
+ * a user-created row can never collide with one.
+ */
+function computeSeedRemovals(
+  profiles: readonly { id: string }[],
+  locations: readonly { id: string; profileId: string }[],
+  items: readonly { id: string; locationId: string }[],
+): SeedRemovals {
+  const asRow = (value: object) => value as unknown as Record<string, unknown>;
+  const seedItems = new Map(mockItems.map((i) => [i.id, asRow(i)]));
+  const seedLocations = new Map(mockLocations.map((l) => [l.id, asRow(l)]));
+  const seedProfiles = new Map(mockProfiles.map((p) => [p.id, asRow(p)]));
+
+  const removedItems = new Set<string>();
+  for (const item of items) {
+    const seed = seedItems.get(item.id);
+    if (seed && matchesSeed(asRow(item), seed)) removedItems.add(item.id);
+  }
+
+  const removedLocations = new Set<string>();
+  for (const location of locations) {
+    const seed = seedLocations.get(location.id);
+    if (!seed || !matchesSeed(asRow(location), seed)) continue;
+    const children = items.filter((i) => i.locationId === location.id);
+    if (children.every((i) => removedItems.has(i.id))) removedLocations.add(location.id);
+  }
+
+  const removedProfiles = new Set<string>();
+  for (const profile of profiles) {
+    const seed = seedProfiles.get(profile.id);
+    if (!seed || !matchesSeed(asRow(profile), seed)) continue;
+    const children = locations.filter((l) => l.profileId === profile.id);
+    if (children.every((l) => removedLocations.has(l.id))) removedProfiles.add(profile.id);
+  }
+
+  return { profiles: removedProfiles, locations: removedLocations, items: removedItems };
+}
+
+/**
+ * Record a demo row as removed: the idmap sentinel (so nothing ever resolves
+ * it to a row) plus the table (so promote can delete precisely).
+ *
+ * Also drops a staged copy from an earlier run. That is the other half of
+ * "a mid-migration edit flips a row into the kept class": the flip has to work
+ * in both directions, or a row staged before the user reverted it would be
+ * promoted as user data after being marked removed.
+ */
+async function markSeedRemoved(
+  db: OwlshelfDB,
+  legacyId: string,
+  table: RowTable,
+): Promise<void> {
+  await db.transaction("rw", db.meta, db.migrateStaging, async () => {
+    const prior = await getIdMapping(db, legacyId);
+    if (prior && prior !== SEED_REMOVED) await db.migrateStaging.delete(prior);
+    await putIdMapping(db, legacyId, SEED_REMOVED);
+    const row = await db.meta.get(META_KEYS.seedRemoved);
+    const rows = (row?.rows as Record<string, RowTable> | undefined) ?? {};
+    rows[legacyId] = table;
+    await db.meta.put({ key: META_KEYS.seedRemoved, rows });
+  });
+}
+
 // ─── staging ───────────────────────────────────────────────────────────────
 
 async function stageAll(db: OwlshelfDB, progress: MigrationProgress): Promise<void> {
   const deviceId = await getDeviceId();
   const deviceId8 = deviceId.replace(/-/g, "").slice(0, 8);
   const mintId = () => `${deviceId8}-m${nanoid()}`;
+  // The owner keypair is minted (or read) ONCE, before any transaction: signing
+  // epoch 1 calls `crypto.subtle`, whose promise is not an IndexedDB request, so
+  // awaiting it inside a Dexie transaction commits the transaction early.
+  const deviceKeys = await getDeviceKeys(db);
 
   const idmap = await readIdMap(db);
+
+  // All three tables are read up front because seed removal is computed
+  // bottom-up (item → location → profile) before anything is staged. Reading
+  // them lazily per table would make the profile decision before the item
+  // decision exists.
+  const profiles = await db.profiles.toArray();
+  const locations = await db.locations.toArray();
+  const items = await db.items.toArray();
+  const removed = computeSeedRemovals(profiles, locations, items);
 
   // Legacy profile id (v1) → roomId. Resumed runs recover the mapping from
   // the staged profile rows themselves (the profile's new id IS its roomId;
@@ -243,12 +369,22 @@ async function stageAll(db: OwlshelfDB, progress: MigrationProgress): Promise<vo
   // The room row, the staged profile, and the idmap mapping commit in ONE
   // transaction — a crash can never orphan a room whose profile never
   // staged, nor re-mint a second room for a profile that already did.
-  const profiles = await db.profiles.toArray();
   for (const p of profiles) {
+    if (removed.profiles.has(p.id)) {
+      await markSeedRemoved(db, p.id, "profiles");
+      continue;
+    }
     if (roomByProfile.has(p.id)) {
       continue; // staged in an interrupted run — never re-mint
     }
     const roomId = crypto.randomUUID();
+    const now = Date.now();
+    // A migrated room must be COMPLETE and pairable (audit-2 N3): the signed
+    // epoch-1 anchor is what a QR carries and what every later epoch verifies
+    // against, so a room without one can never be shared or re-paired. Minting
+    // happens here, outside the transaction below, because it signs.
+    const members = [{ deviceId, role: "owner" as const, addedAt: now }];
+    const anchor = await mintEpoch(roomId, deviceId, deviceKeys.priv, 1, members);
     await db.transaction("rw", db.meta, db.migrateStaging, async () => {
       if (await getIdMapping(db, p.id)) return; // re-check under the lock
       const room: Room = {
@@ -257,12 +393,16 @@ async function stageAll(db: OwlshelfDB, progress: MigrationProgress): Promise<vo
         relayUrl: null,
         keyGen: 1,
         roomKey: b64url(crypto.getRandomValues(new Uint8Array(32))),
-        roster: [{ deviceId, role: "owner", addedAt: Date.now() }],
+        roster: anchor.members,
         cursorIn: {},
         nextAuthorSeq: 1,
         clock: { ts: 0, counter: 0 },
         migration: "running",
-        createdAt: Date.now(),
+        createdAt: now,
+        ownerPub: deviceKeys.pub,
+        rosterAnchor: anchor,
+        rosterEpoch: 1,
+        rosterChain: [anchor],
       };
       await db.meta.put({ key: `${META_KEYS.roomPrefix}${room.roomId}`, ...room });
       const freshProfile = { ...p, id: roomId };
@@ -285,10 +425,13 @@ async function stageAll(db: OwlshelfDB, progress: MigrationProgress): Promise<vo
 
   // Locations map into their profile's room; the new location's profileId
   // is the roomId (profiles are room-keyed).
-  const locations = await db.locations.toArray();
   const newLocationIdByOld = new Map<string, string>();
   const roomIdByOldLocation = new Map<string, string>();
   for (const loc of locations) {
+    if (removed.locations.has(loc.id)) {
+      await markSeedRemoved(db, loc.id, "locations");
+      continue;
+    }
     const roomId = roomByProfile.get(loc.profileId);
     if (!roomId) {
       progress.orphans++; // location without a profile: untouched, never lost
@@ -310,8 +453,11 @@ async function stageAll(db: OwlshelfDB, progress: MigrationProgress): Promise<vo
   // (§6.1 step 3). Media: data URLs are decoded + hashed into `files` and
   // the reference becomes idb:// (§8.1); HTTPS URL policy is keep (§6.1
   // step 4); decode failure preserves the original reference.
-  const items = await db.items.toArray();
   for (const it of items) {
+    if (removed.items.has(it.id)) {
+      await markSeedRemoved(db, it.id, "items");
+      continue;
+    }
     const newLocationId = newLocationIdByOld.get(it.locationId);
     if (!newLocationId) {
       progress.orphans++;
@@ -347,6 +493,7 @@ async function stageItemMedia(
     bytes: decoded.bytes,
     size: decoded.bytes.length,
     contentType: decoded.contentType,
+    createdAt: Date.now(),
   };
   await db.files.put(file);
   stagedItem.imageUrl = `idb://${hash}`;
@@ -376,6 +523,15 @@ async function promote(db: OwlshelfDB): Promise<void> {
         }
       }
       for (const [legacyId, table] of tableByLegacyId) {
+        await db.table(table).delete(legacyId);
+      }
+
+      // §6.1 rule 10 — removed demo rows were never staged, so the delete set
+      // above cannot reach them. `meta.seedRemoved` carries the table for
+      // each, so this is a precise delete rather than a three-table guess.
+      const seedRemovedRow = await db.meta.get(META_KEYS.seedRemoved);
+      const seedRemoved = (seedRemovedRow?.rows as Record<string, RowTable> | undefined) ?? {};
+      for (const [legacyId, table] of Object.entries(seedRemoved)) {
         await db.table(table).delete(legacyId);
       }
 
@@ -442,6 +598,7 @@ async function promote(db: OwlshelfDB): Promise<void> {
       }
 
       await db.migrateStaging.clear();
+      await db.meta.delete(META_KEYS.seedRemoved);
       await db.meta.put({
         key: META_KEYS.migrate,
         ...progress,

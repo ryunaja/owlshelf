@@ -24,6 +24,7 @@
 
 import type { OwlshelfDB } from "./db";
 import { HlcOverflowError, mintHlc } from "./hlc";
+import { parseIdbUrl } from "./mediaUrl";
 import { normalizePutPayload, normalizeResolvePayload } from "./payload";
 import { readRoom, writeRoom } from "./roomMeta";
 import { reduceOp } from "./reduce";
@@ -65,6 +66,8 @@ export type Command =
       kind: "moveItem";
       itemId: string;
       destination: { roomId: string; locationId: string };
+      /** Copies to move, 1..row.stock. Omitted means the whole row. */
+      amount?: number;
     })
   | (CommandBase & { kind: "putProfile"; profile: Record<string, unknown> })
   | (CommandBase & { kind: "putLocation"; location: Record<string, unknown> })
@@ -190,7 +193,21 @@ async function runCommand(
 
   return db.transaction(
     "rw",
-    [db.meta, db.ops, db.outbox, db.pending, db.quarantine, db.profiles, db.locations, db.items],
+    [
+      db.meta,
+      db.ops,
+      db.outbox,
+      db.pending,
+      db.quarantine,
+      db.profiles,
+      db.locations,
+      db.items,
+      // A cross-room move copies the blob into the destination room's `files`
+      // row in the SAME transaction as the destination put (§8.1). Without it
+      // the destination row references a hash that room cannot resolve, and
+      // the source tombstone is the only thing keeping the bytes alive.
+      db.files,
+    ],
     async (): Promise<CommandAck> => {
       // Idempotency: a retry with a known cmdId returns the ORIGINAL ack.
       const recorded = await db.meta.get(`cmd:${command.cmdId}`);
@@ -198,6 +215,16 @@ async function runCommand(
 
       const room = await readRoom(db, command.roomId);
       if (!room) throw new CommandError("validation", `unknown room ${command.roomId}`);
+
+      // §6.7 step 3: once a signed `rotate-key` op says this room moved to a
+      // new generation, minting here is pointless — nobody can read it. Refuse
+      // loudly rather than strand the edit with no diagnostic.
+      if (room.rotationPending !== undefined) {
+        throw new CommandError(
+          "validation",
+          "This room was rotated by its owner. Re-pair with them to keep editing.",
+        );
+      }
 
       const deviceId = await resolveDeviceId(db, options);
       const minted: RowOp[] = [];
@@ -259,16 +286,66 @@ async function runCommand(
           if (!source) throw new CommandError("validation", `unknown item ${command.itemId}`);
           const content = rowContent(source);
 
+          // `stock` is how many copies this row stands for. Moving FEWER than
+          // that SPLITS the row: the destination gets a NEW row carrying
+          // `amount`, the source keeps the remainder. It never increments an
+          // existing destination row, because the reducer is last-writer-wins
+          // per row — two concurrent "move 2 to B" would both read the old
+          // count and both write the same new one, losing copies. A new row
+          // per move is the only convergent representation.
+          const stock = typeof source.stock === "number" ? source.stock : 1;
+          const amount = command.amount ?? stock;
+          if (!Number.isInteger(amount) || amount < 1 || amount > stock) {
+            throw new CommandError("validation", `cannot move ${amount} of ${stock} copies`);
+          }
+          const partial = amount < stock;
+          const remainder = stock - amount;
+
           if (command.destination.roomId === command.roomId) {
             // Same-room move: ONE put with the new locationId, no tombstone.
-            rowId = command.itemId;
-            const payload = normalizePutPayload(
+            // A partial move is TWO puts — the new row plus the remainder —
+            // because the source row survives.
+            if (!partial) {
+              rowId = command.itemId;
+              const payload = normalizePutPayload(
+                "items",
+                { ...content, locationId: command.destination.locationId },
+                { side: "mint" },
+              );
+              if (!payload.ok) throw new CommandError("validation", "invalid item payload");
+              await reduceOp(db, mint({ type: "put", table: "items", rowId, payload: payload.value }));
+              break;
+            }
+
+            const splitRowId = mintRowId(deviceId, uuid());
+            const splitPayload = normalizePutPayload(
               "items",
-              { ...content, locationId: command.destination.locationId },
+              { ...content, locationId: command.destination.locationId, stock: amount },
               { side: "mint" },
             );
-            if (!payload.ok) throw new CommandError("validation", "invalid item payload");
-            await reduceOp(db, mint({ type: "put", table: "items", rowId, payload: payload.value }));
+            if (!splitPayload.ok) throw new CommandError("validation", "invalid item payload");
+            await reduceOp(
+              db,
+              mint({ type: "put", table: "items", rowId: splitRowId, payload: splitPayload.value }),
+            );
+
+            const remainderPayload = normalizePutPayload(
+              "items",
+              { ...content, stock: remainder },
+              { side: "mint" },
+            );
+            if (!remainderPayload.ok) throw new CommandError("validation", "invalid item payload");
+            await reduceOp(
+              db,
+              mint({
+                type: "put",
+                table: "items",
+                rowId: command.itemId,
+                payload: remainderPayload.value,
+              }),
+            );
+
+            rowId = splitRowId;
             break;
           }
 
@@ -283,7 +360,7 @@ async function runCommand(
           const destinationRowId = mintRowId(deviceId, uuid());
           const destinationPayload = normalizePutPayload(
             "items",
-            { ...content, locationId: command.destination.locationId },
+            { ...content, locationId: command.destination.locationId, stock: amount },
             { side: "mint" },
           );
           if (!destinationPayload.ok) throw new CommandError("validation", "invalid item payload");
@@ -299,8 +376,48 @@ async function runCommand(
             }),
           );
 
-          const sourceOp = mint({ type: "delete", table: "items", rowId: command.itemId });
-          await reduceOp(db, sourceOp);
+          // Copy the blob into the destination room BEFORE the source delete,
+          // in the same transaction (§8.1). `files` is keyed by
+          // `[roomId+hash]`, so the destination needs its own row: a bare hash
+          // cannot find the bytes, and the source tombstone is what keeps the
+          // source copy alive until compaction. A move must never make one
+          // room's blob the other room's only copy.
+          const imageHash = parseIdbUrl(
+            typeof destinationPayload.value.imageUrl === "string"
+              ? destinationPayload.value.imageUrl
+              : undefined,
+          );
+          if (imageHash) {
+            const sourceFile = await db.files.get([command.roomId, imageHash]);
+            if (sourceFile) {
+              await db.files.put({ ...sourceFile, roomId: command.destination.roomId });
+            }
+          }
+
+          if (partial) {
+            // The source row survives with the remainder, so no tombstone —
+            // and the blob copy above is still required, because the
+            // remainder row keeps referencing the same hash in the source
+            // room while the destination row references it in its own.
+            const remainderPayload = normalizePutPayload(
+              "items",
+              { ...content, stock: remainder },
+              { side: "mint" },
+            );
+            if (!remainderPayload.ok) throw new CommandError("validation", "invalid item payload");
+            await reduceOp(
+              db,
+              mint({
+                type: "put",
+                table: "items",
+                rowId: command.itemId,
+                payload: remainderPayload.value,
+              }),
+            );
+          } else {
+            const sourceOp = mint({ type: "delete", table: "items", rowId: command.itemId });
+            await reduceOp(db, sourceOp);
+          }
 
           rowId = destinationRowId;
           break;
@@ -372,14 +489,21 @@ async function runCommand(
       }
 
       // §15.5: `opId` for a single-op command, `{ opIds, rowId }` for the one
-      // multi-op command (a cross-room move).
+      // multi-op command (a cross-room move). `createdAt` is what gc.ts ages
+      // the record by — without it the receipt is immortal.
       if (minted.length === 1) {
-        await db.meta.put({ key: `cmd:${command.cmdId}`, opId: minted[0].opId, rowId });
+        await db.meta.put({
+          key: `cmd:${command.cmdId}`,
+          opId: minted[0].opId,
+          rowId,
+          createdAt,
+        });
       } else {
         await db.meta.put({
           key: `cmd:${command.cmdId}`,
           opIds: minted.map((op) => op.opId),
           rowId,
+          createdAt,
         });
       }
 
@@ -390,4 +514,72 @@ async function runCommand(
       return { opIds: minted.map((op) => op.opId), rowId };
     },
   );
+}
+
+// ─── Bulk move ─────────────────────────────────────────────────────────────
+
+/** One item's outcome in a bulk move. */
+export interface MoveResult {
+  itemId: string;
+  ok: boolean;
+  /** The destination row's id, present only on success. */
+  rowId?: string;
+  /** Why this item failed. Present only on failure. */
+  error?: string;
+}
+
+/**
+ * Move many items, reporting PER ITEM (§13 Gate E).
+ *
+ * Deliberately a loop of `executeCommand`, not one transaction:
+ *
+ *  - A bulk move is a user gesture over a selection, and one bad item must not
+ *    roll back the other nineteen. A single transaction would make the whole
+ *    batch fail on the first validation error, which is the opposite of what
+ *    "reports per item" asks for.
+ *  - Each item keeps its own `cmdId`, so a retry after a crash re-runs only
+ *    the items that did not commit. One shared `cmdId` would make the second
+ *    attempt return the first attempt's ack and silently skip the rest.
+ *
+ * The caller gets a result per input item, in input order, so a UI can mark
+ * the failures and leave the successes moved.
+ */
+export async function executeMoveMany(
+  db: OwlshelfDB,
+  request: {
+    /** Prefix; each item's command id is `${cmdId}:${itemId}`. */
+    cmdId: string;
+    roomId: string;
+    itemIds: readonly string[];
+    destination: { roomId: string; locationId: string };
+    /** Copies per item, 1..that item's stock. Omitted means whole rows. */
+    amount?: number;
+  },
+  options: CommandOptions = {},
+): Promise<MoveResult[]> {
+  const results: MoveResult[] = [];
+  for (const itemId of request.itemIds) {
+    try {
+      const ack = await executeCommand(
+        db,
+        {
+          cmdId: `${request.cmdId}:${itemId}`,
+          roomId: request.roomId,
+          kind: "moveItem",
+          itemId,
+          destination: request.destination,
+          amount: request.amount,
+        },
+        options,
+      );
+      results.push({ itemId, ok: true, rowId: ack.rowId });
+    } catch (error) {
+      results.push({
+        itemId,
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  return results;
 }

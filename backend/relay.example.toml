@@ -1,0 +1,87 @@
+# relay.toml — the operator-owned config file (§15.18/O1).
+#
+# Mounted read-only; env vars override every value here. Copy to relay.toml and
+# edit, or point RELAY_CONFIG at it. Unknown keys FAIL THE BOOT on purpose: a
+# silently ignored typo is a relay that behaves nothing like this file says.
+#
+# `tomllib` is stdlib on Python 3.11+, so this file costs no dependency.
+
+# ── Admission (§9) ─────────────────────────────────────────────────────────
+# Only owlshelf pages may connect. Empty refuses EVERYTHING — a config typo
+# must not turn the relay into an open fan-out.
+allowed_origins = ["https://owlshelf.example"]
+
+global_cap = 20000
+room_cap = 10
+# Behind cloudflared this is a PER-USER cap, and a socket is a ROOM membership:
+#   sockets from one public IP = devices behind that NAT × profiles each
+# §9's literal 3 caps a household at 1.5 two-profile devices, so the default is
+# 12 (3 devices × 4 profiles, and a dev machine running two browsers). The
+# throughput bounds are §10.1's byte buckets and the egress governor, not this.
+conns_per_ip = 12
+handshake_deadline = 8.0
+
+# ── Keepalive (§9) ─────────────────────────────────────────────────────────
+heartbeat_interval = 30.0
+heartbeat_misses = 2
+idle_timeout = 300.0
+
+# ── Reaping (§9) ───────────────────────────────────────────────────────────
+room_reap_after = 86400.0
+reap_sweep_interval = 60.0
+
+# ── Transport budget (§9, §10.1) ───────────────────────────────────────────
+# Inbound, per connection: 2 MB/s sustained, 5 MB burst. (The plan's §10.1 said
+# "per min"; §9 and the token-bucket maths are in seconds, so §10.1 was the
+# typo — corrected there, derivation in owlshelf-code-vs-plan.md §7.6.)
+byte_budget_sustained = 2097152
+byte_budget_burst = 5242880
+frame_cap = 524288
+queue_max = 64
+send_deadline = 5.0
+
+# ── §10.1 always-on abuse controls ─────────────────────────────────────────
+# Per-room EGRESS burst (20 MB) and its refill. The refill is derived from
+# §10.1's own amplification math — "one zombie room ≈ 2.4 Mbps egress".
+room_egress_burst = 20971520
+room_egress_refill_bps = 300000
+
+# Global egress governor: ~100 Mbps hard bucket.
+egress_governor_bps = 12500000
+egress_governor_burst = 12500000
+
+# How long a shed frame keeps NEW admissions refused.
+pressure_window = 1.0
+
+# Per-IP churn throttle with temp-bans. The plan names the control and no
+# numbers; these are Gate-G-tunable defaults.
+ip_churn_threshold = 20
+ip_churn_window = 60.0
+ip_churn_ban_seconds = 60.0
+
+# "drop" sheds frames under pressure (§10.1). "disconnect" reproduces the
+# pre-G3 behaviour for Gate G measurement only — not a recommendation.
+shed_policy = "drop"
+
+# ── Ops (§15.18/O4) ────────────────────────────────────────────────────────
+log_format = "json"
+log_file = "/var/log/owlshelf/relay.log"
+log_max_bytes = 104857600
+log_backups = 5
+
+# ── Topology (§15.18/O3, RELAY-GAPS.md G2) ─────────────────────────────────
+# Set RELAY_TOPOLOGY=tunnel (compose does) instead of this field when possible.
+# `tunnel` means a sanitising proxy is on loopback and CF-Connecting-IP is the
+# only real client address; `direct` means the socket peer IS the client.
+# Leaving it out uses the default (trusted), which is right for the mandated
+# tunnel deployment.
+# trust_forwarded_for = true
+
+# ── Decommissioning (§15.4, §12.5) ─────────────────────────────────────────
+# A relay domain ends its life answering "I've moved" rather than going dark.
+# Keys are request paths; "*" is the catch-all. OPERATOR CONFIG ONLY — a
+# redirect a client could inject is a redirect to a host the client controls.
+#
+# [moved]
+# "/ws" = "wss://relay2.example/ws"
+# "*"   = "wss://relay2.example/ws"

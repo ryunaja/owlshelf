@@ -1,5 +1,1 @@
-# app package for the FastAPI application
-
-from . import routers
-
-__all__ = ["routers"]
+"""OwlShelf backend: the sync relay (plan §9)."""

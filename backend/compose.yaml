@@ -1,0 +1,86 @@
+# Owlshelf — the TWO CONTAINER units: frontend + relay.
+#
+# cloudflared runs on the HOST, not here. Both containers share the HOST network
+# namespace (`network_mode: host`; with plain Podman, a pod made with
+# `--network host`). Host cloudflared therefore dials 127.0.0.1:8080 (frontend)
+# and 127.0.0.1:8000 (relay), and the relay sees a LOOPBACK peer — which is what
+# makes RELAY_TOPOLOGY=tunnel trust CF-Connecting-IP. A private pod netns with
+# published ports would make the peer a gateway address and silently reintroduce
+# G2 (every user in one IP bucket). See DEPLOYMENT.md §1.
+#
+# No `ports:` and no TLS in either image. The host firewall denies all inbound;
+# cloudflared is the only ingress and CF terminates TLS at the edge.
+#
+# For an explicit NAMED POD (the recommended Podman path), use the
+# `podman pod create --network host` commands in DEPLOYMENT.md §6.1. This compose
+# file is the declarative equivalent for hosts that do not need a named pod.
+#
+# Resource limits: relay MemoryMax 512M / CPUQuota 150%; frontend 256M / 0.5.
+
+services:
+  relay:
+    build: .
+    restart: unless-stopped
+    mem_limit: 512m
+    cpus: 1.5
+    # Host network: cloudflared (host) reaches 127.0.0.1:8000, peer is loopback.
+    network_mode: host
+    environment:
+      # ── Topology (G2) ────────────────────────────────────────────────────
+      # The operator asserts "a sanitising proxy is on loopback". Without this
+      # every user shares one IP bucket and CONNS_PER_IP caps the whole relay.
+      RELAY_TOPOLOGY: tunnel
+      # Browser Origin is the PUBLIC app hostname. Empty refuses everything.
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:?set ALLOWED_ORIGINS to your app origin}
+      # ── §10.1 budgets: §9 defaults, overridable for Gate G ───────────────
+      ROOM_EGRESS_BURST: "20971520"
+      EGRESS_GOVERNOR_BPS: "12500000"
+      IP_CHURN_THRESHOLD: "20"
+      SHED_POLICY: drop
+      # ── O4 logs ─────────────────────────────────────────────────────────
+      LOG_FORMAT: json
+      LOG_FILE: /var/log/owlshelf/relay.log
+      # ── O1 config file ──────────────────────────────────────────────────
+      RELAY_CONFIG: /etc/owlshelf/relay.toml
+    volumes:
+      - ./relay.toml:/etc/owlshelf/relay.toml:ro
+      - relay-logs:/var/log/owlshelf
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=2).status == 200 else 1)",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  frontend:
+    build:
+      context: ../frontend/owlshelf
+      dockerfile: Containerfile
+      args:
+        # Public wss:// URL the browser dials. Inlined at BUILD time by Vite;
+        # the room's own relayUrl is the runtime override.
+        VITE_RELAY_URL: ${VITE_RELAY_URL:-wss://relay.example.com/ws}
+    restart: unless-stopped
+    mem_limit: 256m
+    cpus: 0.5
+    # Host network: nginx listens on 127.0.0.1:8080 only, so only host-local
+    # cloudflared can reach it. No published port, no TLS listener.
+    network_mode: host
+    healthcheck:
+      # nginx:alpine ships busybox wget, not curl or python.
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  relay-logs:
+    # O4's 14-day retention is a property of the log VOLUME (logrotate/journald);
+    # the handler's 100 MB x 5 rotation bounds disk size.

@@ -1,11 +1,13 @@
 import { useState } from "react";
-import { Plus } from "lucide-react";
-import { useProfiles } from "@/lib/hooks";
+import { Plus, LogIn, Users } from "lucide-react";
+import { useProfiles, useRooms } from "@/lib/hooks";
 import type { Profile } from "@/types/item";
 import { cn } from "@/lib/utils";
 import logoImg from "@/assets/logo.png";
 import { TypewriterBrand } from "@/components/layout/TypewriterBrand";
 import { AddProfileDialog } from "@/components/layout/AddProfileDialog";
+import { JoinRoomDialog } from "@/components/rooms/JoinRoomDialog";
+import { RoomSyncPill } from "@/components/rooms/SyncStatusPill";
 
 interface ProfileSelectPageProps {
   onSelect: (profile: Profile) => void;
@@ -13,7 +15,17 @@ interface ProfileSelectPageProps {
 
 export function ProfileSelectPage({ onSelect }: ProfileSelectPageProps) {
   const { profiles, loading, error, addProfile, reload } = useProfiles();
+  // Rooms are read separately from profiles: `memberCount` is what tells a card
+  // it is a shared shelf, and it lives on the room record, not the profile row.
+  const { rooms } = useRooms();
   const [addDialogOpen, setAddDialogOpen] = useState(false);
+  const [joinDialogOpen, setJoinDialogOpen] = useState(false);
+
+  const shared = new Map(
+    rooms
+      .filter((room) => room.memberCount > 1)
+      .map((room) => [room.roomId, room.memberCount] as const),
+  );
 
   return (
     <div className="profile-select-page">
@@ -73,6 +85,16 @@ export function ProfileSelectPage({ onSelect }: ProfileSelectPageProps) {
                   Create Profile
                 </span>
               </button>
+              <button
+                id="btn-join-shelf-empty"
+                className="btn-ghost"
+                onClick={() => setJoinDialogOpen(true)}
+              >
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                  <LogIn size={15} strokeWidth={2} />
+                  Join a shared shelf
+                </span>
+              </button>
             </div>
           ) : (
             profiles.map((profile) => (
@@ -95,6 +117,21 @@ export function ProfileSelectPage({ onSelect }: ProfileSelectPageProps) {
                       ? "Personal collection"
                       : "Business inventory"}
                   </p>
+                  {shared.has(profile.id) && (
+                    <p className="profile-card-share">
+                      <Users size={11} strokeWidth={2.4} /> Shared with{" "}
+                      {(shared.get(profile.id) ?? 1) - 1} other{" "}
+                      {(shared.get(profile.id) ?? 2) === 2 ? "device" : "devices"}
+                    </p>
+                  )}
+                  {/*
+                    The shelf's health at a glance. Compact form shows the dot
+                    and the close code, so a user who reports "it stopped" has a
+                    number to report — and the tooltip carries the sentence.
+                  */}
+                  <span className="profile-card-sync">
+                    <RoomSyncPill roomId={profile.id} compact />
+                  </span>
                 </div>
                 <span className="profile-card-arrow">→</span>
               </button>
@@ -126,6 +163,34 @@ export function ProfileSelectPage({ onSelect }: ProfileSelectPageProps) {
                 <p className="profile-card-type">
                   Set up another shelf on this device
                 </p>
+              </div>
+            </button>
+          )}
+
+          {/* Join a shelf — the other way a room appears on a device. Kept
+              beside "Create" because the two are the same decision at first
+              run: is this shelf mine, or was it shared with me? */}
+          {!loading && !error && profiles.length > 0 && (
+            <button
+              id="btn-join-shelf"
+              className="profile-card"
+              style={{
+                borderStyle: "dashed",
+                borderColor: "var(--border-dashed)",
+                background: "transparent",
+                boxShadow: "none",
+              }}
+              onClick={() => setJoinDialogOpen(true)}
+            >
+              <span
+                className="profile-card-emoji"
+                style={{ fontSize: 24, color: "var(--text-muted)", lineHeight: 1 }}
+              >
+                <LogIn size={22} strokeWidth={1.5} />
+              </span>
+              <div>
+                <p className="profile-card-name">Join a shelf</p>
+                <p className="profile-card-type">Paste an invite from another device</p>
               </div>
             </button>
           )}
@@ -183,6 +248,11 @@ export function ProfileSelectPage({ onSelect }: ProfileSelectPageProps) {
         open={addDialogOpen}
         onClose={() => setAddDialogOpen(false)}
         onSave={addProfile}
+      />
+
+      <JoinRoomDialog
+        open={joinDialogOpen}
+        onClose={() => setJoinDialogOpen(false)}
       />
     </div>
   );

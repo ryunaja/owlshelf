@@ -149,6 +149,46 @@ export function releaseMedia(roomId: string, hash: string): void {
   cache.delete(key);
 }
 
+// ─── Invalidation ──────────────────────────────────────────────────────────
+
+type MediaListener = (roomId: string, hash: string) => void;
+
+const listeners = new Set<MediaListener>();
+
+/** Notified when a blob for `(roomId, hash)` changes. Returns an unsubscribe. */
+export function subscribeMedia(listener: MediaListener): () => void {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
+/**
+ * Forget the cached answer for one blob and tell every consumer.
+ *
+ * `missing` is a cacheable answer only while nothing can change it. A blob a
+ * peer has not sent yet is missing now and present in ten seconds, so a cached
+ * `missing` outlives the truth and the image never appears without a reload —
+ * which is exactly what happened before this existed. The sync engine calls
+ * this when a blob lands.
+ *
+ * Deleting the entry drops its refcount, so the holders' later `releaseMedia`
+ * calls find nothing and no-op — the fresh entry they acquire next carries
+ * their references instead. That is why this is safe to call while components
+ * are mounted. The URL is revoked here rather than left to the refcount: the
+ * bytes behind it are the OLD answer, and a component that kept rendering it
+ * would show a stale image after a re-fetch.
+ */
+export function invalidateMedia(roomId: string, hash: string): void {
+  const key = cacheKey(roomId, hash);
+  const entry = cache.get(key);
+  if (entry) {
+    if (entry.url) URL.revokeObjectURL(entry.url);
+    cache.delete(key);
+  }
+  for (const listener of listeners) listener(roomId, hash);
+}
+
 /** Test seam: the cache size, so a leak is observable. */
 export function mediaCacheSize(): number {
   return cache.size;

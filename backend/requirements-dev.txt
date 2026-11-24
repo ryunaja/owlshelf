@@ -1,0 +1,13 @@
+-r requirements.txt
+
+# Gate C/D run against a real uvicorn server over real WebSocket frames, not a
+# test double: the relay's contract is a wire contract, and a mocked socket
+# would test the mock.
+pytest==8.4.2
+pytest-asyncio==1.2.0
+httpx==0.28.1
+certifi==2026.11.20
+
+# `uvicorn --reload` only. The deployed relay runs without it, so it is not a
+# runtime dependency (§15.18/O3).
+watchfiles==1.3.0

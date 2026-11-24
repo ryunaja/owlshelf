@@ -5,6 +5,7 @@ import { ItemGrid } from "@/components/items/ItemGrid";
 import { SearchBar } from "@/components/items/SearchBar";
 import { AddItemDialog } from "@/components/items/AddItemDialog";
 import { ItemDetailDialog } from "@/components/items/ItemDetailDialog";
+import { MoveItemDialog } from "@/components/items/MoveItemDialog";
 import { useItems, type NewItemData } from "@/lib/hooks";
 import type { Profile, Location, Item, ItemType } from "@/types/item";
 
@@ -16,7 +17,7 @@ interface InventoryPageProps {
 }
 
 export function InventoryPage({ profile, location, onBack, onOpenSearch }: InventoryPageProps) {
-  const { items, loading, addItem, updateItem, deleteItem } = useItems(location.id);
+  const { items, loading, addItem, updateItem, deleteItem, moveItem } = useItems(location.id);
 
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const [activeType, setActiveType] = useState<ItemType | "all">("all");
@@ -24,6 +25,7 @@ export function InventoryPage({ profile, location, onBack, onOpenSearch }: Inven
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<Item | null>(null);
   const [detailItem, setDetailItem] = useState<Item | null>(null);
+  const [movingItem, setMovingItem] = useState<Item | null>(null);
 
   /* Filtered items */
   const visibleItems = useMemo(() => {
@@ -166,7 +168,19 @@ export function InventoryPage({ profile, location, onBack, onOpenSearch }: Inven
         item={detailItem}
         onClose={() => setDetailItem(null)}
         onEdit={handleEdit}
+        onMove={(item) => {
+          setDetailItem(null);
+          setMovingItem(item);
+        }}
       />
+
+      {movingItem && (
+        <MoveItemDialog
+          item={movingItem}
+          onClose={() => setMovingItem(null)}
+          onMove={moveItem}
+        />
+      )}
     </div>
   );
 }

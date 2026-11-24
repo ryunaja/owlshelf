@@ -46,6 +46,18 @@ export const MIGRATE_STAGING_STORE = "id, table";
  *  primary key regardless of prefix — a compound PK here is valid. */
 export const FILES_STORE = "[roomId+hash]";
 
+/** One blob. `hash` is `sha256(bytes)` and is the row's identity, so a
+ *  transfer that does not hash to its name is never written (§6.6). */
+export interface FileRow {
+  roomId: string;
+  hash: string;
+  bytes: Uint8Array<ArrayBuffer>;
+  contentType: string;
+  /** Denormalized for GC accounting; `bytes.byteLength` is authoritative. */
+  size: number;
+  createdAt: number;
+}
+
 /** deviceId, clock, per-room metadata, idmap, migrate progress — the
  *  single-writer control state. */
 export const META_STORE = "key";
@@ -81,7 +93,6 @@ export const ROW_TABLES = ["profiles", "locations", "items"] as const;
 export type RowTable = (typeof ROW_TABLES)[number];
 
 // ─── Row sync columns (reducer-owned; stripped at the facade boundary) ─────
-
 export interface SyncColumns {
   /** Total-order key of the winning op: "hlcTs:hlcCounter:typeRank:deviceId:opId". */
   winner?: string;
@@ -197,6 +208,16 @@ export interface Room {
   roomKey: string;
   roster: RosterMember[];
   cursorIn: Record<string, number>;
+  /** Outbound adoption evidence (§6.6 ack rule): `peerCursors[peer][author]`
+   *  is the highest contiguous seq that PEER has adopted from AUTHOR. This is
+   *  the mirror of `cursorIn`, which is what WE have adopted — conflating the
+   *  two is how a device acks its own ops to itself and never re-sends. */
+  peerCursors?: Record<string, Record<string, number>>;
+  /** `lastSeen[peerDeviceId]` — when we last had AUTHENTICATED contact. Drives
+   *  the ACK_GRACE escape hatch (audit-4 D2/R4-P1-1: one member absent for a
+   *  week left 12,000 of 12,000 entries unacked and every resume re-sent
+   *  7.2 MB, growing without bound). */
+  lastSeen?: Record<string, number>;
   nextAuthorSeq: number;
   /** PER-ROOM clock (plan §15.8): a global `clock` row would serialize every
    *  room's mints on one meta record, and the mint transaction loads the room
@@ -205,6 +226,34 @@ export interface Room {
   /** Set when a same-seq/different-opId fork is detected (§6.4/R4-P0-3).
    *  Surfaces in sync status as `attention` (§15.14). */
   forked?: boolean;
+  // ── The signed roster (plan §6.7, step 6) ───────────────────────────────
+  //
+  // `roster` above is the DERIVED current membership — the head of the chain,
+  // kept because `decideAck` and the profile list read it. These four are the
+  // trust root. An absent `ownerPub` means a room created before step 6: it is
+  // still usable, but no epoch can be verified, so it cannot be re-paired until
+  // it is re-keyed. That is the honest state, not a silent downgrade.
+  /** base64url raw Ed25519 public key of the room's OWNER, pinned from the QR
+   *  (or minted locally at create). Every roster epoch verifies against it. */
+  ownerPub?: string;
+  /** Immutable epoch-1 anchor, signed by the owner. Travels in the QR; never
+   *  rewritten, which is what makes it a pin rather than a cache. */
+  rosterAnchor?: { epoch: number; members: RosterMember[]; sig: string };
+  /** Highest epoch this device has adopted. `undefined` on a pre-step-6 room. */
+  rosterEpoch?: number;
+  /** Every epoch seen, sorted by epoch, holes allowed (a late joiner never saw
+   *  the early ones). §8.2's snapshot carries this so a post-compaction joiner
+   *  can still walk the chain from its pinned anchor. */
+  rosterChain?: Array<{ epoch: number; members: RosterMember[]; sig: string }>;
+  /** Set when a signed `rotate-key` control op says this room moved to a NEW
+   *  generation (§6.7 step 3, audit-4 D4/R4-P1-5). The device STOPS minting
+   *  and surfaces "re-pair with the owner" — minting into a room nobody will
+   *  read strands edits with no diagnostic. */
+  rotationPending?: number;
+  /** A signed `rehome` op that has been verified but not yet accepted. §6.7
+   *  makes repointing a relay a TRUST PROMPT: the owner can aim every member
+   *  at a host it controls, so the URL moves only when the user says so. */
+  pendingRelayUrl?: string;
   migration: "running" | "promoted";
   createdAt: number;
 }
@@ -213,12 +262,21 @@ export interface Room {
 
 export const META_KEYS = {
   deviceId: "deviceId",
+  /** §15.8: `{ pub, priv }` — the per-device Ed25519 signing keypair
+   *  (control-op signatures, §6.7). Exportable by necessity: WebCrypto keys
+   *  are not persistable, and a `SharedWorker` dies with the last tab. */
+  deviceKeys: "deviceKeys",
   /** §15.6/§15.8: ONE meta row per mapping, `idmap:<oldId>` → newId — a
    *  single large-object rewrite per chunk is a hot spot; the prefix scan
    *  of the PK is an index walk. */
   idmap: "idmap:",
   migrate: "migrate",
   roomPrefix: "room:",
+  /** §6.1 rule 10: legacy ids of UNMODIFIED demo rows, mapped to the table
+   *  they live in. The idmap records the removal as `SEED_REMOVED`, but a
+   *  sentinel cannot say which store to delete from, and promote must delete
+   *  precisely rather than guess across three tables. */
+  seedRemoved: "seedRemoved",
 } as const;
 
 /** The meta.migrate record (plan §15.6 — shape is normative): state machine

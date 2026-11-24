@@ -1,0 +1,15 @@
+# Build context for the relay image (§15.18/O3).
+# The test suite, the venv and the docs are not runtime inputs, and shipping
+# them in the image is both larger and an information leak.
+.venv/
+.pytest_cache/
+__pycache__/
+*.pyc
+tests/
+requirements-dev.txt
+RELAY-GAPS.md
+README.md
+compose.yaml
+relay.example.toml
+relay.toml
+*.log

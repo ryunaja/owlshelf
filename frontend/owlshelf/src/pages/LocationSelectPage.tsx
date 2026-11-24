@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { Plus, Pencil, Search } from "lucide-react";
+import { Plus, Pencil, Search, Users } from "lucide-react";
 import { useLocations } from "@/lib/hooks";
 import { AddLocationDialog } from "@/components/layout/AddLocationDialog";
+import { ShareRoomDialog } from "@/components/rooms/ShareRoomDialog";
 import type { Profile, Location } from "@/types/item";
 import logoSrc from "@/assets/logo.png";
 
@@ -21,6 +22,7 @@ export function LocationSelectPage({
   const { locations, loading, addLocation, updateLocation, deleteLocation } = useLocations(profile.id);
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [editingLocation, setEditingLocation] = useState<Location | null>(null);
+  const [shareOpen, setShareOpen] = useState(false);
 
   const handleEditClick = (e: React.MouseEvent, loc: Location) => {
     e.stopPropagation();
@@ -52,14 +54,25 @@ export function LocationSelectPage({
           <img src={logoSrc} alt="Owlshelf" className="loc-topbar-logo" />
           <span className="location-topbar-name">{profile.name}</span>
         </div>
-        <button
-          id="loc-search-btn"
-          className="loc-search-btn"
-          onClick={onOpenSearch}
-          aria-label="Global search"
-        >
-          <Search size={18} strokeWidth={2} />
-        </button>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <button
+            id="loc-share-btn"
+            className="loc-search-btn"
+            onClick={() => setShareOpen(true)}
+            aria-label="Share this shelf"
+            title="Devices and invites"
+          >
+            <Users size={18} strokeWidth={2} />
+          </button>
+          <button
+            id="loc-search-btn"
+            className="loc-search-btn"
+            onClick={onOpenSearch}
+            aria-label="Global search"
+          >
+            <Search size={18} strokeWidth={2} />
+          </button>
+        </div>
       </header>
 
       <div className="location-page-inner">
@@ -131,6 +144,13 @@ export function LocationSelectPage({
         onClose={handleCloseDialog}
         onSave={handleSaveLocation}
         onDelete={deleteLocation}
+      />
+
+      <ShareRoomDialog
+        open={shareOpen}
+        roomId={profile.id}
+        roomName={profile.name}
+        onClose={() => setShareOpen(false)}
       />
     </div>
   );

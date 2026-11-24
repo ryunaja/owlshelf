@@ -6,7 +6,8 @@
  * the ack must reject, and nothing may survive.
  */
 
-import { CommandError, executeCommand } from "../../src/lib/cmd.ts";
+import { CommandError, executeCommand, executeMoveMany } from "../../src/lib/cmd.ts";
+import { sha256Hex } from "../../src/lib/hash.ts";
 import { assert, assertDeepEqual, assertEqual, assertRejectsWith } from "../lib/assert.mjs";
 import { withDb } from "../lib/db.mjs";
 import {
@@ -307,6 +308,355 @@ export default {
           const roomB = await db.meta.get(`room:${ROOM_B}`);
           assertEqual(roomA.nextAuthorSeq, 3, "room A minted the delete");
           assertEqual(roomB.nextAuthorSeq, 2, "room B minted the put");
+        });
+      },
+    },
+    {
+      // §8.1: "Cross-room moves copy the blob to the destination room's
+      // `files` row (same hash, new roomId) in the same transaction as the
+      // destination put." Without it the destination row references a hash
+      // that room cannot resolve, and the source tombstone is the only thing
+      // keeping the bytes alive.
+      name: "a cross-room move copies the blob into the destination room",
+      async run() {
+        await withDb(async (db) => {
+          await seedRoom(db, { roomId: ROOM_A });
+          await seedRoom(db, { roomId: ROOM_B });
+          const opts = options();
+
+          const bytes = new Uint8Array([9, 8, 7]);
+          const hash = await sha256Hex(bytes);
+          await db.files.put({
+            roomId: ROOM_A,
+            hash,
+            bytes,
+            size: bytes.byteLength,
+            contentType: "image/webp",
+            createdAt: 1,
+          });
+
+          const created = await executeCommand(
+            db,
+            {
+              cmdId: "c1",
+              roomId: ROOM_A,
+              kind: "putItem",
+              locationId: "loc-a",
+              item: { name: "Dune", imageUrl: `idb://${hash}` },
+            },
+            opts,
+          );
+
+          await executeCommand(
+            db,
+            {
+              cmdId: "move",
+              roomId: ROOM_A,
+              kind: "moveItem",
+              itemId: created.rowId,
+              destination: { roomId: ROOM_B, locationId: "loc-b" },
+            },
+            opts,
+          );
+
+          const source = await db.files.get([ROOM_A, hash]);
+          const destination = await db.files.get([ROOM_B, hash]);
+          assert(source, "the source copy survives the move");
+          assert(destination, "the destination room has its own row");
+          assertEqual(destination.size, bytes.byteLength, "same bytes");
+          assertEqual(destination.contentType, "image/webp", "same content type");
+        });
+      },
+    },
+    {
+      name: "a cross-room move of an item with no blob writes no file row",
+      async run() {
+        await withDb(async (db) => {
+          await seedRoom(db, { roomId: ROOM_A });
+          await seedRoom(db, { roomId: ROOM_B });
+          const opts = options();
+          const created = await executeCommand(
+            db,
+            { cmdId: "c1", roomId: ROOM_A, kind: "putItem", locationId: "loc-a", item: { name: "Dune" } },
+            opts,
+          );
+          await executeCommand(
+            db,
+            {
+              cmdId: "move",
+              roomId: ROOM_A,
+              kind: "moveItem",
+              itemId: created.rowId,
+              destination: { roomId: ROOM_B, locationId: "loc-b" },
+            },
+            opts,
+          );
+          assertEqual(await db.files.count(), 0, "no phantom file row");
+        });
+      },
+    },
+    {
+      // The plan never specifies partial moves; `stock` is a per-row count and
+      // every move in the plan is row-level. Moving fewer copies than the row
+      // holds therefore SPLITS the row rather than incrementing a destination
+      // row: the reducer is last-writer-wins per row, so two concurrent
+      // "move 2 to B" would both read the old count and both write the same
+      // new one, losing copies. A new row per move is the only convergent
+      // representation.
+      name: "a partial same-room move splits the row into a new row plus a remainder",
+      async run() {
+        await withDb(async (db) => {
+          await seedRoom(db);
+          // One options object: `fixedUuid` restarts its sequence per call, so
+          // a second `options()` would mint the split row with the source id.
+          const opts = options();
+          const created = await executeCommand(
+            db,
+            {
+              cmdId: "c1",
+              roomId: ROOM_A,
+              kind: "putItem",
+              locationId: "loc-1",
+              item: { name: "Dune", stock: 5 },
+            },
+            opts,
+          );
+          const ack = await executeCommand(
+            db,
+            {
+              cmdId: "c2",
+              roomId: ROOM_A,
+              kind: "moveItem",
+              itemId: created.rowId,
+              destination: { roomId: ROOM_A, locationId: "loc-2" },
+              amount: 2,
+            },
+            opts,
+          );
+
+          assertEqual(ack.opIds.length, 2, "two puts: the split row and the remainder");
+          assert(ack.rowId !== created.rowId, "the moved copies get a NEW row");
+
+          const moved = await db.items.get(ack.rowId);
+          assertEqual(moved.locationId, "loc-2", "moved copies are on the destination shelf");
+          assertEqual(moved.stock, 2, "moved copies");
+          assertEqual(moved.deletedAt, null, "live");
+
+          const remainder = await db.items.get(created.rowId);
+          assertEqual(remainder.locationId, "loc-1", "the remainder stays put");
+          assertEqual(remainder.stock, 3, "remainder copies");
+          assertEqual(remainder.deletedAt, null, "the source row is NOT tombstoned");
+        });
+      },
+    },
+    {
+      name: "a partial cross-room move copies the blob and leaves the remainder behind",
+      async run() {
+        await withDb(async (db) => {
+          await seedRoom(db, { roomId: ROOM_A });
+          await seedRoom(db, { roomId: ROOM_B });
+          const opts = options();
+
+          const bytes = new Uint8Array([4, 5, 6]);
+          const hash = await sha256Hex(bytes);
+          await db.files.put({
+            roomId: ROOM_A,
+            hash,
+            bytes,
+            size: bytes.byteLength,
+            contentType: "image/webp",
+            createdAt: 1,
+          });
+
+          const created = await executeCommand(
+            db,
+            {
+              cmdId: "c1",
+              roomId: ROOM_A,
+              kind: "putItem",
+              locationId: "loc-a",
+              item: { name: "Dune", stock: 4, imageUrl: `idb://${hash}` },
+            },
+            opts,
+          );
+
+          const ack = await executeCommand(
+            db,
+            {
+              cmdId: "move",
+              roomId: ROOM_A,
+              kind: "moveItem",
+              itemId: created.rowId,
+              destination: { roomId: ROOM_B, locationId: "loc-b" },
+              amount: 1,
+            },
+            opts,
+          );
+
+          const moved = await db.items.get(ack.rowId);
+          assertEqual(moved.profileId, ROOM_B, "moved copies live in the destination room");
+          assertEqual(moved.stock, 1, "moved copies");
+          assertEqual(moved.imageUrl, `idb://${hash}`, "the photo came along");
+
+          const remainder = await db.items.get(created.rowId);
+          assertEqual(remainder.profileId, ROOM_A, "the remainder stays in the source room");
+          assertEqual(remainder.stock, 3, "remainder copies");
+          assertEqual(remainder.deletedAt, null, "no tombstone on a partial move");
+
+          assert(await db.files.get([ROOM_A, hash]), "the source room keeps its bytes");
+          assert(await db.files.get([ROOM_B, hash]), "the destination room has its own row");
+        });
+      },
+    },
+    {
+      name: "moving every copy is a full move, not a split",
+      async run() {
+        await withDb(async (db) => {
+          await seedRoom(db, { roomId: ROOM_A });
+          await seedRoom(db, { roomId: ROOM_B });
+          const opts = options();
+          const created = await executeCommand(
+            db,
+            {
+              cmdId: "c1",
+              roomId: ROOM_A,
+              kind: "putItem",
+              locationId: "loc-a",
+              item: { name: "Dune", stock: 3 },
+            },
+            opts,
+          );
+          const ack = await executeCommand(
+            db,
+            {
+              cmdId: "move",
+              roomId: ROOM_A,
+              kind: "moveItem",
+              itemId: created.rowId,
+              destination: { roomId: ROOM_B, locationId: "loc-b" },
+              amount: 3,
+            },
+            opts,
+          );
+
+          assertEqual(ack.opIds.length, 2, "destination put + source tombstone");
+          const moved = await db.items.get(ack.rowId);
+          assertEqual(moved.stock, 3, "all copies moved");
+          const source = await db.items.get(created.rowId);
+          assert(source.deletedAt !== null, "the source row is tombstoned");
+        });
+      },
+    },
+    {
+      name: "an amount outside 1..stock is a validation error and writes nothing",
+      async run() {
+        await withDb(async (db) => {
+          await seedRoom(db);
+          const created = await executeCommand(
+            db,
+            {
+              cmdId: "c1",
+              roomId: ROOM_A,
+              kind: "putItem",
+              locationId: "loc-1",
+              item: { name: "Dune", stock: 2 },
+            },
+            options(),
+          );
+          const before = await db.ops.count();
+
+          for (const amount of [0, -1, 3, 1.5]) {
+            await assertRejectsWith(
+              () =>
+                executeCommand(
+                  db,
+                  {
+                    cmdId: `bad-${amount}`,
+                    roomId: ROOM_A,
+                    kind: "moveItem",
+                    itemId: created.rowId,
+                    destination: { roomId: ROOM_A, locationId: "loc-2" },
+                    amount,
+                  },
+                  options(),
+                ),
+              (error) => error instanceof CommandError && error.code === "validation",
+              `amount ${amount} rejected`,
+            );
+          }
+
+          assertEqual(await db.ops.count(), before, "no op was minted");
+          const row = await db.items.get(created.rowId);
+          assertEqual(row.stock, 2, "the row is untouched");
+          assertEqual(row.locationId, "loc-1", "still on its shelf");
+        });
+      },
+    },
+    {
+      // Gate E: "a bulk move reports per item". One bad item must not roll
+      // back the others, and the caller must be able to tell which failed.
+      name: "a bulk move reports per item and keeps the successes",
+      async run() {
+        await withDb(async (db) => {
+          await seedRoom(db, { roomId: ROOM_A });
+          await seedRoom(db, { roomId: ROOM_B });
+          const opts = options();
+
+          const first = await executeCommand(
+            db,
+            { cmdId: "c1", roomId: ROOM_A, kind: "putItem", locationId: "loc-a", item: { name: "Dune" } },
+            opts,
+          );
+          const second = await executeCommand(
+            db,
+            { cmdId: "c2", roomId: ROOM_A, kind: "putItem", locationId: "loc-a", item: { name: "Emma" } },
+            opts,
+          );
+
+          const results = await executeMoveMany(
+            db,
+            {
+              cmdId: "bulk",
+              roomId: ROOM_A,
+              itemIds: [first.rowId, "does-not-exist", second.rowId],
+              destination: { roomId: ROOM_B, locationId: "loc-b" },
+            },
+            opts,
+          );
+
+          assertEqual(results.length, 3, "one result per input item");
+          assertEqual(results[0].ok, true, "first moved");
+          assertEqual(results[1].ok, false, "the missing item failed");
+          assert(results[1].error.length > 0, "and says why");
+          assertEqual(results[2].ok, true, "third moved despite the failure");
+
+          const moved = await db.items.where("profileId").equals(ROOM_B).toArray();
+          assertEqual(moved.length, 2, "both good items reached the destination");
+        });
+      },
+    },
+    {
+      name: "a bulk move is idempotent per item",
+      async run() {
+        await withDb(async (db) => {
+          await seedRoom(db, { roomId: ROOM_A });
+          await seedRoom(db, { roomId: ROOM_B });
+          const opts = options();
+          const created = await executeCommand(
+            db,
+            { cmdId: "c1", roomId: ROOM_A, kind: "putItem", locationId: "loc-a", item: { name: "Dune" } },
+            opts,
+          );
+          const request = {
+            cmdId: "bulk",
+            roomId: ROOM_A,
+            itemIds: [created.rowId],
+            destination: { roomId: ROOM_B, locationId: "loc-b" },
+          };
+          const first = await executeMoveMany(db, request, opts);
+          const second = await executeMoveMany(db, request, opts);
+          assertDeepEqual(second, first, "same results");
+          assertEqual(await db.ops.count(), 3, "no extra ops");
         });
       },
     },

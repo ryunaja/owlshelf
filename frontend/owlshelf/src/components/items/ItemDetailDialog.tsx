@@ -8,6 +8,9 @@ interface ItemDetailDialogProps {
   item: Item | null;
   onClose: () => void;
   onEdit: (item: Item) => void;
+  /** Opens the move picker. The command path has supported both moves since
+   *  step 3; this is the affordance that makes them reachable. */
+  onMove: (item: Item) => void;
 }
 
 function ConditionDots({ value }: { value: number }) {
@@ -31,6 +34,7 @@ export function ItemDetailDialog({
   item,
   onClose,
   onEdit,
+  onMove,
 }: ItemDetailDialogProps) {
   // The hook runs before the early return: hooks cannot be conditional.
   const media = useMediaSrc(item?.imageUrl, item?.profileId ?? "");
@@ -117,17 +121,26 @@ export function ItemDetailDialog({
             </div>
           </div>
 
-          {/* Edit button */}
-          <button
-            id="detail-edit"
-            className="btn-primary detail-edit-btn"
-            onClick={() => {
-              onClose();
-              onEdit(item);
-            }}
-          >
-            Edit Item
-          </button>
+          {/* Actions */}
+          <div className="detail-actions">
+            <button
+              id="detail-move"
+              className="btn-ghost detail-move-btn"
+              onClick={() => onMove(item)}
+            >
+              Move
+            </button>
+            <button
+              id="detail-edit"
+              className="btn-primary detail-edit-btn"
+              onClick={() => {
+                onClose();
+                onEdit(item);
+              }}
+            >
+              Edit Item
+            </button>
+          </div>
         </div>
       </div>
     </div>

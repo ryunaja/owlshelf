@@ -5,12 +5,22 @@
  * that changes one field shows exactly what it changed.
  */
 
+import { bytesToB64url } from "../../src/lib/envelope.ts";
 import { writeRoom } from "../../src/lib/roomMeta.ts";
 
 export const ROOM_A = "room-a";
 export const ROOM_B = "room-b";
 export const DEVICE_A = "dev-a";
 export const DEVICE_B = "dev-b";
+
+/** A real 32-byte room key. `roomKeyBytes` rejects anything else, so a
+ *  fixture with a short key would make every sealing test throw. */
+export const ROOM_KEY = bytesToB64url(new Uint8Array(32).fill(7));
+
+/** ROOM_B's key. A different room MUST have a different key — the hash of the
+ *  key is the relay's routing address, so two rooms sharing one key would share
+ *  one relay room, and (since §9's multiplexing) one membership too. */
+export const ROOM_KEY_B = bytesToB64url(new Uint8Array(32).fill(8));
 
 export function makeRoom(overrides = {}) {
   const roomId = overrides.roomId ?? ROOM_A;
@@ -19,7 +29,7 @@ export function makeRoom(overrides = {}) {
     profileId: roomId,
     relayUrl: null,
     keyGen: 1,
-    roomKey: "cm9vbS1rZXk",
+    roomKey: roomId === ROOM_B ? ROOM_KEY_B : ROOM_KEY,
     roster: [{ deviceId: DEVICE_A, role: "owner", addedAt: 0 }],
     cursorIn: {},
     nextAuthorSeq: 1,

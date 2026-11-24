@@ -14,7 +14,6 @@
 
 import Dexie, { type Table } from "dexie";
 import { mockProfiles, mockLocations, mockItems } from "../data/mockItems";
-import type { Profile } from "../types/item";
 import {
   V1_STORES,
   V2_STORES,
@@ -30,7 +29,7 @@ import {
   type StagedRow,
   type SnapshotRow,
 } from "./stores";
-import { newRoom, roomMetaKey } from "./roomMeta";
+import { roomMetaKey } from "./roomMeta";
 
 const DB_NAME = "owlshelf-db";
 const DB_VERSION = 2;
@@ -188,47 +187,14 @@ export async function putRoom(room: Room): Promise<void> {
   await db.meta.put({ key: roomMetaKey(room.roomId), ...room });
 }
 
-// ─── profile creation (plan §6.7 create) ──────────────────────────────────
-
-function b64url(bytes: Uint8Array): string {
-  let s = "";
-  for (const b of bytes) s += String.fromCharCode(b);
-  return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-function nanoid(len = 10): string {
-  const alphabet = "abcdefghijklmnopqrstuvwxyz0123456789";
-  const bytes = crypto.getRandomValues(new Uint8Array(len));
-  return Array.from(bytes, (b) => alphabet[b % alphabet.length]).join("");
-}
-
-/** §6.7 create, in order: mint a collision-safe roomId (8-char deviceId
- *  prefix + nanoid) and a fresh 256-bit roomKey, persist COMPLETE room
- *  metadata, then write the profile row whose id IS the roomId — one
- *  transaction, so a crash never leaves a profile without its room (or a
- *  room without its profile). The room is BOUND before any QR is minted
- *  (step 6); nothing here is pairable yet. */
-export async function createProfile(data: Omit<Profile, "id">): Promise<Profile> {
-  await ensureOpen();
-  const deviceId = await getDeviceId();
-  const deviceId8 = deviceId.replace(/-/g, "").slice(0, 8);
-  const roomId = `${deviceId8}-${nanoid()}`;
-  const now = Date.now();
-  const room: Room = newRoom(
-    roomId,
-    deviceId,
-    b64url(crypto.getRandomValues(new Uint8Array(32))),
-    now,
-  );
-  const profile: Profile = { ...data, id: roomId };
-  await db.transaction("rw", db.meta, db.profiles, async () => {
-    await db.meta.put({ key: roomMetaKey(roomId), ...room });
-    // Row tables carry the reducer-owned tombstone column; a live row says
-    // so explicitly (audit R4-P2-1's absent-field trap).
-    await db.table("profiles").put({ ...profile, deletedAt: null });
-  });
-  return profile;
-}
+// ─── profile creation ─────────────────────────────────────────────────────
+//
+// Creation lives in `rooms.ts` (`createRoom`), because a room is only usable
+// once it has a SIGNED ROSTER ANCHOR — and this module cannot mint one without
+// pulling the whole control plane in. The function that used to live here built
+// a room with no `ownerPub` and no anchor, which made every profile created
+// through it unpairable: `mintJoinFragment` refuses a room with no anchor, and
+// `rejoinRoom` has nothing to verify against (code-vs-plan §5.6).
 
 // ─── open + migration trigger ──────────────────────────────────────────────
 

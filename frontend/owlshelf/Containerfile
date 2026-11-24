@@ -1,40 +1,43 @@
-# Stage 1: Build the React application
-FROM node:20-alpine AS build
+# OwlShelf frontend image — STATIC HTTP ONLY (deployment plan §4).
+#
+# Cloudflare Tunnel terminates TLS at the edge. There is deliberately NO cert,
+# NO key, NO port 443, and NO TLS listener in this image: the old Containerfile
+# copied origin.pem/origin.key into nginx, which is exactly the procedure being
+# retired. The only ingress to this container is cloudflared on loopback inside
+# the shared pod network namespace.
+#
+# Build-time config: VITE_RELAY_URL is the wss:// URL of the relay as seen by the
+# browser. Vite inlines it into the bundle, so a change REQUIRES a rebuild — see
+# DEPLOYMENT.md §5 for why the per-room relayUrl (from pairing) is the repointable
+# path and this is only the fallback.
+
+# ── Stage 1: build ─────────────────────────────────────────────────────────
+FROM node:26-alpine AS build
 
 WORKDIR /app
 
-# Copy package.json and package-lock.json to install dependencies
-COPY package*.json ./
+# npm ci, not npm install: the plan pins Dexie/fake-indexeddb exactly and CI uses
+# npm ci, so a build must not silently resolve different versions.
+COPY package.json package-lock.json ./
+RUN npm ci
 
-# Install dependencies
-RUN npm install
-
-# Copy the rest of the application code
 COPY . .
 
-# Build the React application
+# The public relay URL. Vite reads it from import.meta.env.VITE_RELAY_URL.
+ARG VITE_RELAY_URL=wss://relay.example.com/ws
+ENV VITE_RELAY_URL=${VITE_RELAY_URL}
+
 RUN npm run build
 
-# Stage 2: Serve the application with Nginx
+# ── Stage 2: plain HTTP static server ─────────────────────────────────────
 FROM nginx:alpine
 
-# Create a directory for SSL certificates
-RUN mkdir -p /etc/nginx/ssl
-
-# Copy Cloudflare Origin Certificate and Private Key
-# ENSURE these files are in your local owlshelf directory!
-COPY origin.pem /etc/nginx/ssl/origin.pem
-COPY origin.key /etc/nginx/ssl/origin.key
-
-# Copy custom Nginx configuration
+# No TLS directory, no certificates, no EXPOSE 443. nginx listens on 8080 only.
 COPY nginx.conf /etc/nginx/conf.d/default.conf
-
-# Copy the built application from the build stage to Nginx's public directory
 COPY --from=build /app/dist /usr/share/nginx/html
 
-# Expose ports 80 and 443
-EXPOSE 80
-EXPOSE 443
+# Non-root: nginx:alpine's default user is already nginx, and /usr/share/nginx
+# is readable by it. No writable path is needed — the PWA caches in IndexedDB.
+EXPOSE 8080
 
-# Command to start Nginx
 CMD ["nginx", "-g", "daemon off;"]

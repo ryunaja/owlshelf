@@ -23,20 +23,15 @@ export async function writeRoom(db: OwlshelfDB, room: Room): Promise<void> {
   await db.meta.put({ key: roomMetaKey(room.roomId), ...room });
 }
 
-/** A fresh room record. `roomId` IS the profile id (§6.7): a remap that
- *  breaks that orphans the room from its profile. */
-export function newRoom(roomId: string, deviceId: string, roomKeyB64: string, now: number): Room {
-  return {
-    roomId,
-    profileId: roomId,
-    relayUrl: null,
-    keyGen: 1,
-    roomKey: roomKeyB64,
-    roster: [{ deviceId, role: "owner", addedAt: now }],
-    cursorIn: {},
-    nextAuthorSeq: 1,
-    clock: { ts: 0, counter: 0 },
-    migration: "promoted",
-    createdAt: now,
-  };
+/** Every `room:` record on this device, in insertion order. */
+export async function listRooms(db: OwlshelfDB): Promise<Room[]> {
+  const rows = await db.meta.where("key").startsWith(META_KEYS.roomPrefix).toArray();
+  return rows.map((row) => row as unknown as Room);
 }
+
+// `newRoom` used to live here and built a room with a key but NO `ownerPub` and
+// NO anchor. That is a room nobody can ever pair with, and the only reason it
+// survived this long is that nothing called it — `createRoom` (rooms.ts) is the
+// one legitimate creator and it signs epoch 1 before persisting. Rooms made by
+// the broken create path still exist on real devices; `repairRoom` in rooms.ts
+// gives them a roster instead of silently refusing to share them.

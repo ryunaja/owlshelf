@@ -13,11 +13,13 @@
 import {
   acquireMedia,
   idbUrl,
+  invalidateMedia,
   mediaCacheSize,
   parseIdbUrl,
   releaseMedia,
+  subscribeMedia,
 } from "../../src/lib/mediaUrl.ts";
-import { assert, assertEqual } from "../lib/assert.mjs";
+import { assert, assertDeepEqual, assertEqual } from "../lib/assert.mjs";
 import { withDb } from "../lib/db.mjs";
 
 const ROOM_A = "room-a";
@@ -160,6 +162,76 @@ export default {
           assertEqual(state.status, "ready", "the read still resolves");
           assertEqual(mediaCacheSize(), 0, "the late URL was revoked, not cached");
         });
+      },
+    },
+    {
+      // The bug this exists for: a blob that a peer has not sent yet is
+      // missing NOW and present in ten seconds. A cached `missing` outlives
+      // the truth, so the image never appears without a reload.
+      name: "a cached 'missing' is re-resolved after invalidateMedia",
+      async run() {
+        await withDb(async (db) => {
+          const first = await acquireMedia(db, ROOM_A, HASH);
+          assertEqual(first.status, "missing", "nothing stored yet");
+
+          // The peer's bytes land.
+          await seedFile(db, ROOM_A, HASH);
+          invalidateMedia(ROOM_A, HASH);
+
+          const second = await acquireMedia(db, ROOM_A, HASH);
+          assertEqual(second.status, "ready", "the arrival is visible without a reload");
+          releaseMedia(ROOM_A, HASH);
+          assertEqual(mediaCacheSize(), 0, "released");
+        });
+      },
+    },
+    {
+      name: "invalidateMedia notifies only the matching (roomId, hash)",
+      async run() {
+        const seen = [];
+        const unsubscribe = subscribeMedia((roomId, hash) => seen.push(`${roomId}/${hash}`));
+        try {
+          invalidateMedia(ROOM_A, HASH);
+          invalidateMedia(ROOM_B, HASH);
+          assertDeepEqual(seen, [`${ROOM_A}/${HASH}`, `${ROOM_B}/${HASH}`], "both reported");
+        } finally {
+          unsubscribe();
+        }
+        invalidateMedia(ROOM_A, HASH);
+        assertEqual(seen.length, 2, "unsubscribed listeners are not called");
+      },
+    },
+    {
+      name: "invalidateMedia revokes the stale URL instead of leaking it",
+      async run() {
+        await withDb(async (db) => {
+          await seedFile(db, ROOM_A, HASH);
+          const first = await acquireMedia(db, ROOM_A, HASH);
+          assertEqual(first.status, "ready", "ready");
+
+          invalidateMedia(ROOM_A, HASH);
+          assertEqual(mediaCacheSize(), 0, "the entry is gone");
+
+          // The holder's later release finds nothing and must not throw.
+          releaseMedia(ROOM_A, HASH);
+          assertEqual(mediaCacheSize(), 0, "still gone");
+        });
+      },
+    },
+    {
+      name: "invalidateMedia on an uncached blob is a no-op that still notifies",
+      async run() {
+        let calls = 0;
+        const unsubscribe = subscribeMedia(() => {
+          calls += 1;
+        });
+        try {
+          invalidateMedia(ROOM_A, "never-seen");
+          assertEqual(calls, 1, "consumers are told even with no cache entry");
+          assertEqual(mediaCacheSize(), 0, "nothing was created");
+        } finally {
+          unsubscribe();
+        }
       },
     },
   ],
